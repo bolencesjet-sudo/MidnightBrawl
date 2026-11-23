@@ -51,7 +51,7 @@ Signup creates an unverified player and sends a six-digit code. No player sessio
 1. Open your Vercel dashboard and select the correct project.
 2. Open **Settings → Environment Variables**.
 3. Add each preferred `SMTP_*` variable above. Select **Production** for real credentials. Use separate sandbox credentials for Preview/Development. Mark passwords/keys sensitive where supported. Do not add a `NEXT_PUBLIC_`, `PUBLIC_`, or `VITE_` prefix.
-4. Add `TF_APP_KEY`, `TF_ENV=production`, `TF_APP_URL=https://your-production-domain`, and the `TF_DB_*` settings in `.env.example` on the server that actually executes PHP. `TF_DB_SSL_CA` must point to the database provider's trusted CA file on that server.
+4. Add `TF_APP_KEY`, `TF_ENV=production`, `TF_APP_URL=https://your-production-domain`, and the `TF_DB_*` settings in `.env.example` on the server that actually executes PHP. Database TLS encryption is required; CA settings are optional. With both CA settings unset, database certificates and hostnames are not verified. Supplying `TF_DB_SSL_CA` or `TF_DB_SSL_CA_PEM` enables verification.
 5. Save the variables and create a new deployment/redeploy. Changed variables do not update existing deployments.
 6. On staging, register a fresh player email, receive the code, verify it, and check sign-in and resend behavior. Verify that production and previews do not share the same database or SMTP credentials.
 
@@ -87,7 +87,7 @@ In **Event settings**, admins can edit the name, game label and registration dea
 ## Deployment controls
 
 - Set `TF_ENV=production`, `TF_APP_URL` to the exact HTTPS origin, and all required database/key variables. Production fails closed when these are missing, when PHP is too old, or when root/blank database credentials are used. Keep database host/port values free of DSN parameters.
-- Use a dedicated application database user limited to SELECT/INSERT/UPDATE/DELETE on this database. Use a different migration user for installation. Require verified database TLS with `TF_DB_SSL_CA`; restrict database network access to application hosts. Do not expose port 3306 publicly.
+- Use a dedicated application database user limited to SELECT/INSERT/UPDATE/DELETE on this database. Use a different migration user for installation. Production requires encrypted database TLS. CA verification is optional; without it, encryption does not authenticate the database server. Restrict database network access to application hosts. Do not expose port 3306 publicly.
 - Serve HTTPS only. Enable `TF_TRUST_PROXY=1` only when requests can reach PHP exclusively through a trusted reverse proxy that overwrites `X-Forwarded-Proto`. Do not trust arbitrary forwarding headers for IP rate limits; the app uses `REMOTE_ADDR`. Behind a proxy, configure the web server to supply the real, trusted client address or limits will apply to the proxy collectively.
 - Production sessions are stored in the shared MySQL `web_sessions` table. Development can use PHP file sessions outside the document root, or `TF_SESSION_STORE=database` for production-like checks. Sessions expire after 30 minutes idle or eight hours absolute. Cookies are HttpOnly, SameSite=Strict, and Secure in production. Authentication regenerates session IDs and CSRF tokens.
 - The API accepts same-origin JSON requests, enforces CSRF on mutations, imposes a 16 KiB body limit, and emits no permissive CORS headers. With `TF_APP_URL` set it rejects a different Origin. Keep this single-origin policy unless a reviewed integration requires otherwise.
@@ -107,22 +107,25 @@ composer validate --strict
 composer audit --locked --no-dev
 php tests/algorithms.php
 node tests/integration.mjs
+node tests/database-tls.mjs
 node tests/secrets.mjs
 ```
 
 Integration checks create a unique `tfv1_test_*` database and a loopback-only SMTP server with a locally generated, trusted test certificate. They exercise actual PHPMailer STARTTLS delivery without disabling certificate validation. Test accounts/messages are fictional. The suite cleans up its own database and certificate directory. Its database identity needs CREATE/DROP for test databases; production app credentials should not have those permissions.
 
+Database TLS checks use a loopback MySQL protocol fixture with a self-signed certificate. They verify encrypted login without a CA, rejection of servers without TLS before credentials are sent, enforcement of an active session cipher, and hostname verification when an optional CA is configured. They do not modify the application database.
+
 The secrets check scans high-confidence token/private-key/credential-URL patterns in the working files and all locally reachable Git blobs, without printing secrets. It cannot detect every password or inspect unfetched remote history. The GitHub token previously pasted into this conversation must be revoked independently; a clean repository scan does not revoke it. No history has been rewritten or force-pushed.
 
 Validation performed locally: 289 integration assertions passed, 14 headless-browser assertions passed, and 62 round-robin algorithm combinations passed. PHP/JavaScript syntax checks, Composer strict validation and the dependency advisory audit passed. The local-ref scan inspected 22 historical blobs with no high-confidence findings. Apache returned 403 for tested configuration, Git, dependency, script, database, test and backup paths. The existing database was backed up under the ignored, web-denied `runtime/` directory before the additive migration; no tournament records were removed. The final CLI transaction check confirmed successful admin creation/reset and rollback on duplicate creation. Actual Gmail delivery and production hosting remain unverified.
 
-Release gates still requiring operator configuration: supported production PHP, actual SMTP credentials and verified sender, application key, HTTPS origin/trusted proxy, restricted TLS database user/CA, protected backup/restore, real-provider email delivery, public file-denial checks, and validation of the chosen hosting runtime. No production credentials, hosting account or final admin password were supplied, so those cannot be set on your behalf in this checkout.
+Release gates still requiring operator configuration: supported production PHP, actual SMTP credentials and verified sender, application key, HTTPS origin/trusted proxy, restricted TLS database user, optional database CA verification, protected backup/restore, real-provider email delivery, public file-denial checks, and validation of the chosen hosting runtime. No production credentials, hosting account or final admin password were supplied, so those cannot be set on your behalf in this checkout.
 
 ## Checklist outcome
 
 | Requested area | Result in this checkout |
 | --- | --- |
-| Environment, database, debug settings | Production validation, non-root database requirement, verified database TLS, generic errors; actual production secrets/runtime still required |
+| Environment, database, debug settings | Production validation, non-root database requirement, encrypted database TLS with optional CA verification, generic errors; actual production secrets/runtime still required |
 | Admin routes, authentication, roles, account separation | Server-side authorization; separate admin sign-in and CLI setup; account directory, role/status controls; sensitive actions require password confirmation |
 | Form validation, XSS, API protection | Typed/length-bound fields, prepared SQL, escaped HTML, CSP, CSRF, JSON-only writes and request-size limits |
 | Rate limiting, CORS and security headers | Durable MySQL counters, authentication/account limits, resend cooldown, same-origin policy and response headers |

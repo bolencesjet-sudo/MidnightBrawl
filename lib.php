@@ -21,8 +21,17 @@ function db(bool $selectDatabase = true): PDO {
         chmod($temporaryCa,0600); $ca=$temporaryCa;
     }
     if ($ca !== '') { $options[PDO::MYSQL_ATTR_SSL_CA]=$ca; $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT]=true; }
+    elseif (production()) {
+        // Request encrypted transport without requiring a CA or hostname match.
+        $options[PDO::MYSQL_ATTR_SSL_CIPHER]='DEFAULT';
+        $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT]=false;
+    }
     try { $pdo = new PDO($dsn, $c['username'], $c['password'], $options); }
     finally { if ($temporaryCa!==null) unlink($temporaryCa); }
+    if (production()) {
+        $tls=$pdo->query("SHOW SESSION STATUS LIKE 'Ssl_cipher'")->fetch(PDO::FETCH_NUM);
+        if (!$tls || empty($tls[1])) throw new RuntimeException('The production database connection must use TLS encryption.');
+    }
     $pdo->exec("SET time_zone = '+08:00'");
     return $pdo;
 }

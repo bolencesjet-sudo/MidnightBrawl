@@ -36,7 +36,6 @@ function validateEnvironment(): void {
     if (strlen(envValue('TF_APP_KEY')) < 32 || strtolower($c['username']) === 'root' || !str_starts_with(envValue('TF_APP_URL'), 'https://')) {
         throw new ServiceConfigurationException('Production requires a strong TF_APP_KEY, a dedicated database user and an HTTPS TF_APP_URL.');
     }
-    if (envValue('TF_DB_SSL_CA') === '' && envValue('TF_DB_SSL_CA_PEM') === '') throw new ServiceConfigurationException('Configure verified TLS for the production database.');
 }
 function setupAllowed(): bool {
     return !production() && in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1','::1'], true);

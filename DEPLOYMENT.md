@@ -36,8 +36,8 @@ Sign in, Register and Admin sign-in are always available in the upper-right acco
 | `TF_DB_NAME` | Your Clever Cloud database name |
 | `TF_DB_USER` | Your restricted Clever Cloud database username, not `root` |
 | `TF_DB_PASSWORD` | Its password |
-| `TF_DB_SSL_CA` | A valid provider CA file path inside the runtime; prefer the portable `TF_DB_SSL_CA_PEM` setting below |
-| `TF_DB_SSL_CA_PEM` | Provider's CA certificate PEM text if it uses a private CA; the app materializes this privately for the connection and deletes the temporary file |
+| `TF_DB_SSL_CA` | Optional. Provider CA file path to enable database certificate and hostname verification; leave unset for TLS without CA verification |
+| `TF_DB_SSL_CA_PEM` | Optional alternative to the file path. Provider CA certificate PEM text; leave unset for TLS without CA verification |
 | `TF_SESSION_STORE` | `database` (also set in `vercel.json`; mandatory in production) |
 | `TF_TRUST_PROXY` | `1` (also set in `vercel.json` for Vercel?s HTTPS proxy) |
 | `SMTP_HOST` | `smtp.gmail.com` |
@@ -47,13 +47,15 @@ Sign in, Register and Admin sign-in are always available in the upper-right acco
 | `SMTP_FROM_EMAIL` | `bolencesjet@gmail.com` |
 | `SMTP_FROM_NAME` | `Midnight Brawl` |
 
-`MYSQL_ADDON_HOST`, `MYSQL_ADDON_PORT`, `MYSQL_ADDON_DB`, `MYSQL_ADDON_USER` and `MYSQL_ADDON_PASSWORD` are also accepted for Clever Cloud connection values. Explicit `TF_DB_*` names take precedence. Production requires verified TLS; there is no option to disable certificate verification. If the selected database plan does not offer a verified TLS connection, obtain a provider-supported secure connection before using it for production.
+`MYSQL_ADDON_HOST`, `MYSQL_ADDON_PORT`, `MYSQL_ADDON_DB`, `MYSQL_ADDON_USER` and `MYSQL_ADDON_PASSWORD` are also accepted for Clever Cloud connection values. Explicit `TF_DB_*` names take precedence. Production requires TLS encryption. With both CA settings unset, self-signed and hostname-mismatched database certificates are accepted. This encrypts traffic but does not authenticate the database server. Supplying a CA enables certificate and hostname verification. Invalid configured CAs fail rather than retrying without verification.
+
+For the reported `Configure verified TLS for the production database` error, deploy this revision with `TF_DB_SSL_CA` and `TF_DB_SSL_CA_PEM` unset. The custom CA requirement has been removed. No database migration, account reset or data import is required for this change.
 
 The existing Vercel project's complete legacy set `HOST`, `DB_NAME`, `USER`, and `PASSWORD` is also supported. All four must be present before any are used, so an operating-system `USER` setting cannot accidentally become the database login. Existing sensitive Vercel values can stay in place; their values do not need to be printed or copied into source code.
 
 Generate the application key privately with `php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"`. Enable Google 2-Step Verification and create a [Google App Password](https://support.google.com/accounts/answer/185833) for SMTP. Never use public/browser environment-variable prefixes for secrets.
 
-Migration and administrator CLI tools run from the source checkout with the selected database variables set in the PHP process. The deployment excludes schema/test files, and CLI tools are never exposed as HTTP setup endpoints. Configure local migration TLS with a real local CA path or the PEM environment variable; a container-only path will not exist on Windows.
+Migration and administrator CLI tools run from the source checkout with the selected database variables set in the PHP process. The deployment excludes schema/test files, and CLI tools are never exposed as HTTP setup endpoints. They use the same production TLS behavior. If opting into CA verification, use a real local CA path or the PEM environment variable; a container-only path will not exist on Windows.
 
 ## Release checks
 
