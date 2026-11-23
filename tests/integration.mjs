@@ -7,7 +7,7 @@ import {startTestSMTP} from './smtp.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const database='tfv1_test_'+randomBytes(6).toString('hex');
 const smtp=await startTestSMTP(root);
-const env={...process.env,TF_ENV:'development',VERCEL:'',TF_DB_NAME:database,...smtp.env};
+const env={...process.env,TF_ENV:'development',VERCEL:'',TF_DB_NAME:database,TF_SESSION_STORE:'database',...smtp.env};
 const port=19000+Math.floor(Math.random()*1000),base=`http://127.0.0.1:${port}/api.php`;
 let server,checks=0;
 const check=(value,message)=>{assert.ok(value,message);checks++};

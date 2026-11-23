@@ -4,7 +4,6 @@ require __DIR__ . '/lib.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 securityHeaders();
-startSecureSession();
 
 function currentUser(PDO $db): ?array {
     $u=isset($_SESSION['uid']) ? one($db,'SELECT id,name,email,role,username,auth_version FROM users WHERE id=? AND disabled_at IS NULL AND email_verified_at IS NOT NULL',[$_SESSION['uid']]) : null;
@@ -45,8 +44,9 @@ try {
     validateEnvironment();
     demand(!production() || secureRequest(),'HTTPS is required.',403);
     $db=db();
+    startSecureSession();
     $ip=$_SERVER['REMOTE_ADDR']??'unknown';
-    if ($_SERVER['REQUEST_METHOD']==='GET') { rateLimit($db,'read',$ip,240,60); echo json_encode(state($db,currentUser($db))); exit; }
+    if ($_SERVER['REQUEST_METHOD']==='GET') { rateLimit($db,'read',$ip,240,60); $response=state($db,currentUser($db)); session_write_close(); echo json_encode($response); exit; }
     demand($_SERVER['REQUEST_METHOD']==='POST','Method not allowed.',405);
     demand(strtolower(trim(explode(';',$_SERVER['CONTENT_TYPE']??'')[0]))==='application/json','Use application/json.',415);
     $origin=$_SERVER['HTTP_ORIGIN']??'';
@@ -224,7 +224,8 @@ try {
         }
     }
     $db->commit(); query($db,"SELECT RELEASE_LOCK('tfv1_mutation')");
-    echo json_encode(['ok'=>true,'created_event_id'=>$eid??null,'state'=>state($db,currentUser($db))]);
+    $response=['ok'=>true,'created_event_id'=>$eid??null,'state'=>state($db,currentUser($db))];
+    session_write_close(); echo json_encode($response);
 } catch (DomainException $e) {
     if (isset($db)&&$db->inTransaction()) $db->rollBack(); if (http_response_code()<400) http_response_code(422); echo json_encode(['error'=>$e->getMessage()]);
 } catch (PDOException $e) {

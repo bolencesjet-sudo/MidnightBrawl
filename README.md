@@ -13,6 +13,10 @@ A PHP + MySQL tournament manager for XAMPP. Original TFv1 shield branding, dark 
 
 Use a supported PHP release (8.2+ required in production) with `pdo_mysql` and `mbstring`, and MySQL 5.7+/MariaDB 10.4+ are required. Tested with this XAMPP installation. Google Fonts are optional: local system fonts work offline.
 
+## Deploy on Vercel
+
+Follow [DEPLOYMENT.md](DEPLOYMENT.md). `Dockerfile.vercel` selects a PHP container instead of static file hosting; production sessions use the shared MySQL database. Configure the hosted database and SMTP environment variables and run the additive migration before releasing registration.
+
 ## Run a tournament
 
 - Create an event with independent **team size**, **formation mode**, **format**, **race target**, **deadline (Asia/Manila)**, and **game positions**. Competition rules are fixed at creation; admins can edit the name, game label and deadline, or delete an event with password confirmation.

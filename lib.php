@@ -11,8 +11,18 @@ function db(bool $selectDatabase = true): PDO {
     $dsn = "mysql:host={$c['host']};port={$c['port']};charset=utf8mb4";
     if ($selectDatabase) $dsn .= ";dbname={$c['database']}";
     $options=[PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false];
-    if (envValue('TF_DB_SSL_CA') !== '') { $options[PDO::MYSQL_ATTR_SSL_CA]=envValue('TF_DB_SSL_CA'); $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT]=true; }
-    $pdo = new PDO($dsn, $c['username'], $c['password'], $options);
+    $ca=envValue('TF_DB_SSL_CA'); $temporaryCa=null;
+    if (envValue('TF_DB_SSL_CA_PEM')!=='') {
+        $pem=envValue('TF_DB_SSL_CA_PEM');
+        if (!openssl_x509_read($pem)) throw new RuntimeException('Invalid database CA certificate.');
+        $temporaryCa=tempnam(sys_get_temp_dir(),'tf-db-ca-');
+        if ($temporaryCa===false) throw new RuntimeException('Unable to prepare database TLS.');
+        if (file_put_contents($temporaryCa,$pem)===false) { unlink($temporaryCa); throw new RuntimeException('Unable to prepare database TLS.'); }
+        chmod($temporaryCa,0600); $ca=$temporaryCa;
+    }
+    if ($ca !== '') { $options[PDO::MYSQL_ATTR_SSL_CA]=$ca; $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT]=true; }
+    try { $pdo = new PDO($dsn, $c['username'], $c['password'], $options); }
+    finally { if ($temporaryCa!==null) unlink($temporaryCa); }
     $pdo->exec("SET time_zone = '+08:00'");
     return $pdo;
 }

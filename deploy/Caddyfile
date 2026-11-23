@@ -1,0 +1,19 @@
+{
+    auto_https off
+    admin off
+}
+
+:{$PORT:80} {
+    root * /app/public
+    encode zstd gzip
+    header X-Content-Type-Options nosniff
+
+    # Only these application assets can be served as files.
+    @assets path /assets/style.css /assets/app.js /assets/theme.js /assets/logo.svg
+    handle @assets {
+        file_server
+    }
+    handle {
+        php_server
+    }
+}

@@ -1,5 +1,5 @@
 Options -Indexes
-<FilesMatch "^(config|lib|install|security|mail|admin)\.php$">
+<FilesMatch "^(config|lib|install|migrate|security|mail|admin|sessions)\.php$">
   Require all denied
 </FilesMatch>
 <FilesMatch "(^\.|~$|\.(md|sql|log|json|lock|mjs|ps1|cnf|ini|bak|old|orig|save|swp|dist|env|pem|key|p12)$)">

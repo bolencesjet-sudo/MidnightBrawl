@@ -1,0 +1,22 @@
+# Vercel detects this filename as the Container framework preset.
+FROM dunglas/frankenphp:1-php8.4-alpine AS base
+WORKDIR /app
+RUN install-php-extensions pdo_mysql mbstring \
+    && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+
+FROM base AS dependencies
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --optimize-autoloader
+
+FROM base AS runtime
+COPY --from=dependencies /app/vendor /app/vendor
+# Explicit copies keep backups, Git, local settings and test data out of the image.
+COPY index.php api.php lib.php config.php security.php mail.php sessions.php /app/
+COPY public/index.php /app/public/index.php
+COPY assets/style.css assets/app.js assets/theme.js assets/logo.svg /app/public/assets/
+COPY deploy/Caddyfile /etc/caddy/Caddyfile
+COPY deploy/php.ini /usr/local/etc/php/conf.d/zz-tfv1.ini
+ENV PORT=80 TF_ENV=production TF_SESSION_STORE=database TF_TRUST_PROXY=1
+EXPOSE 80
+CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]

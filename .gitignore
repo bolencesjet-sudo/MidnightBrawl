@@ -9,3 +9,5 @@ vendor/
 *.pem
 *.key
 *.p12
+.vercel/
+*.session.sql

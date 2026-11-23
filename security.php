@@ -26,13 +26,15 @@ function securityHeaders(): void {
 function validateEnvironment(): void {
     if (!production()) return;
     if (PHP_VERSION_ID < 80200) throw new RuntimeException('Production requires a supported PHP version (8.2 or later).');
-    foreach (['TF_DB_HOST','TF_DB_NAME','TF_DB_USER','TF_DB_PASSWORD','TF_APP_KEY','TF_APP_URL'] as $key) {
+    foreach (['TF_APP_KEY','TF_APP_URL'] as $key) {
         if (envValue($key) === '') throw new RuntimeException('Production environment is incomplete.');
     }
-    if (strlen(envValue('TF_APP_KEY')) < 32 || envValue('TF_DB_USER') === 'root' || !str_starts_with(envValue('TF_APP_URL'), 'https://')) {
+    $c=require __DIR__.'/config.php';
+    foreach (['host','database','username','password'] as $key) if ($c[$key]==='') throw new RuntimeException('Production database environment is incomplete.');
+    if (strlen(envValue('TF_APP_KEY')) < 32 || strtolower($c['username']) === 'root' || !str_starts_with(envValue('TF_APP_URL'), 'https://')) {
         throw new RuntimeException('Production environment is insecure.');
     }
-    if (envValue('TF_DB_SSL_CA') === '') throw new RuntimeException('Configure verified TLS for the production database.');
+    if (envValue('TF_DB_SSL_CA') === '' && envValue('TF_DB_SSL_CA_PEM') === '') throw new RuntimeException('Configure verified TLS for the production database.');
 }
 function setupAllowed(): bool {
     return !production() && in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1','::1'], true);
@@ -57,6 +59,11 @@ function rateLimit(PDO $db, string $scope, string $identity, int $limit, int $se
     if (random_int(1,100) === 1) query($db,'DELETE FROM rate_limits WHERE expires_at < ? LIMIT 1000',[time()]);
 }
 function startSecureSession(): void {
+    if (production() || envValue('TF_SESSION_STORE')==='database') {
+        require_once __DIR__.'/sessions.php';
+        session_set_save_handler(new DatabaseSessions(db()),true);
+        ini_set('session.gc_maxlifetime','1800');
+    }
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');
     ini_set('session.use_trans_sid', '0');
