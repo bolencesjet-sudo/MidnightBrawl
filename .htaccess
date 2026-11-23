@@ -1,7 +1,9 @@
 Options -Indexes
-<FilesMatch "^(config|lib|install)\.php$">
+<FilesMatch "^(config|lib|install|security|mail|admin)\.php$">
   Require all denied
 </FilesMatch>
-<FilesMatch "\.(md|sql|log|json|mjs)$">
+<FilesMatch "(^\.|~$|\.(md|sql|log|json|lock|mjs|ps1|cnf|ini|bak|old|orig|save|swp|dist|env|pem|key|p12)$)">
   Require all denied
 </FilesMatch>
+RewriteEngine On
+RewriteRule ^(?:\.git|\.agents|\.codex|\.aws|vendor|tests|database|runtime)(?:/|$) - [F,L,NC]

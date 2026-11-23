@@ -3,12 +3,14 @@ declare(strict_types=1);
 require __DIR__ . '/lib.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
-header('X-Content-Type-Options: nosniff');
-session_set_cookie_params(['httponly'=>true,'samesite'=>'Strict','secure'=>!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off']);
-session_start();
-$_SESSION['csrf'] ??= bin2hex(random_bytes(24));
+securityHeaders();
+startSecureSession();
 
-function currentUser(PDO $db): ?array { return isset($_SESSION['uid']) ? one($db,'SELECT id,name,email,role FROM users WHERE id=?',[$_SESSION['uid']]) : null; }
+function currentUser(PDO $db): ?array {
+    $u=isset($_SESSION['uid']) ? one($db,'SELECT id,name,email,role,username,auth_version FROM users WHERE id=? AND disabled_at IS NULL AND email_verified_at IS NOT NULL',[$_SESSION['uid']]) : null;
+    if (!$u || (int)$u['auth_version']!==(int)($_SESSION['auth_version']??0) || ($u['role']==='organizer' && empty($_SESSION['admin_login']))) return null;
+    unset($u['auth_version']); return $u;
+}
 function admin(?array $u): void { demand($u && $u['role'] === 'organizer','Organizer access required.',403); }
 function official(?array $u): void { demand($u && in_array($u['role'],['organizer','referee'],true),'Referee or organizer access required.',403); }
 function editable(array $e): void { demand(!(bool)$e['locked'],'Rosters are locked. Reset the tournament before changing teams.'); }
@@ -34,35 +36,71 @@ function state(PDO $db, ?array $u): array {
         $e['teams']=rows($db,'SELECT * FROM teams WHERE event_id=? ORDER BY id',[$e['id']]);
         $e['matches']=rows($db,'SELECT * FROM matches WHERE event_id=? ORDER BY round_no,id',[$e['id']]);
         $e['standings']=standings($e['teams'],$e['matches']);
-        $e['requests']=$u ? rows($db,'SELECT r.*,p.display_name,t.name AS team_name FROM join_requests r JOIN players p ON p.id=r.player_id JOIN teams t ON t.id=r.team_id WHERE t.event_id=?',[$e['id']]):[];
+        $e['requests']=$u ? rows($db,'SELECT r.*,p.display_name,t.name AS team_name FROM join_requests r JOIN players p ON p.id=r.player_id JOIN teams t ON t.id=r.team_id LEFT JOIN players c ON c.id=t.captain_id WHERE t.event_id=? AND (?=\'organizer\' OR p.user_id=? OR c.user_id=?)',[$e['id'],$u['role'],$u['id'],$u['id']]):[];
         $e['audit']=rows($db,'SELECT a.id,a.action,a.created_at,COALESCE(u.name,\'System\') AS actor FROM audit_log a LEFT JOIN users u ON u.id=a.user_id WHERE a.event_id=? ORDER BY a.id DESC LIMIT 50',[$e['id']]);
     } unset($e);
-    return ['user'=>$u,'csrf'=>$_SESSION['csrf'],'needsSetup'=>(int)query($db,'SELECT COUNT(*) FROM users')->fetchColumn()===0,'events'=>$events,'users'=>$u && $u['role']==='organizer'?rows($db,'SELECT id,name,email,role FROM users ORDER BY id'):[]];
+    return ['user'=>$u,'csrf'=>$_SESSION['csrf'],'verificationRequired'=>isset($_SESSION['pending_uid']),'needsSetup'=>setupAllowed() && (int)query($db,'SELECT COUNT(*) FROM users')->fetchColumn()===0,'events'=>$events,'users'=>$u && $u['role']==='organizer'?rows($db,'SELECT id,name,email,username,role,disabled_at,email_verified_at FROM users ORDER BY id'):[]];
 }
 try {
+    validateEnvironment();
+    demand(!production() || secureRequest(),'HTTPS is required.',403);
     $db=db();
-    if ($_SERVER['REQUEST_METHOD']==='GET') { echo json_encode(state($db,currentUser($db))); exit; }
+    $ip=$_SERVER['REMOTE_ADDR']??'unknown';
+    if ($_SERVER['REQUEST_METHOD']==='GET') { rateLimit($db,'read',$ip,240,60); echo json_encode(state($db,currentUser($db))); exit; }
     demand($_SERVER['REQUEST_METHOD']==='POST','Method not allowed.',405);
+    demand(strtolower(trim(explode(';',$_SERVER['CONTENT_TYPE']??'')[0]))==='application/json','Use application/json.',415);
+    $origin=$_SERVER['HTTP_ORIGIN']??'';
+    if ($origin!=='' && envValue('TF_APP_URL')!=='') demand(rtrim($origin,'/')===rtrim(envValue('TF_APP_URL'),'/'),'Origin is not allowed.',403);
     demand(hash_equals($_SESSION['csrf'],$_SERVER['HTTP_X_CSRF_TOKEN']??''),'Session expired. Refresh the page and try again.',403);
-    $d=json_decode(file_get_contents('php://input'),true,512,JSON_THROW_ON_ERROR);
-    $action=$d['action']??''; $u=currentUser($db);
+    $raw=file_get_contents('php://input',false,null,0,16385); demand(strlen($raw)<=16384,'Request is too large.',413);
+    try { $d=json_decode($raw,true,16,JSON_THROW_ON_ERROR); } catch (JsonException $e) { demand(false,'Invalid JSON.',400); }
+    demand(is_array($d) && str_starts_with(ltrim($raw),'{'),'Expected a JSON object.',400);
+    $action=field($d,'action',40); $u=currentUser($db);
+    rateLimit($db,'write',$ip,1800,600);
+    if (in_array($action,['setup','signup','login','admin_login'],true)) {
+        rateLimit($db,'auth-ip',$ip,60,900);
+        $identity=strtolower(is_string($d['email']??null)?$d['email']:(is_string($d['username']??null)?$d['username']:''));
+        rateLimit($db,'auth-account',$identity,10,900);
+        if ($action==='signup') rateLimit($db,'signup',$ip,20,3600);
+    }
+    if (in_array($action,['verify_email','resend_verification'],true)) {
+        rateLimit($db,'verification-ip',$ip,30,600);
+        rateLimit($db,$action,(string)($_SESSION['pending_uid']??$ip),$action==='verify_email'?5:1,$action==='verify_email'?600:60,$action==='resend_verification');
+    }
+    if ($u && in_array($action,['set_role','set_disabled','delete_event'],true)) rateLimit($db,'admin-confirm',(string)$u['id'],10,900);
     // Serialize mutations, including first-organizer creation and roster membership checks.
     demand((int)query($db,"SELECT GET_LOCK('tfv1_mutation',10)")->fetchColumn()===1,'The system is busy. Please try again.',503);
     $db->beginTransaction();
-    if (in_array($action,['setup','signup','login','logout'],true)) {
-        if ($action==='logout') { unset($_SESSION['uid']); session_regenerate_id(true); }
-        elseif ($action==='login') {
-            $account=one($db,'SELECT * FROM users WHERE email=?',[strtolower(field($d,'email',190))]);
-            demand($account && password_verify((string)($d['password']??''),$account['password_hash']),'Email or password is incorrect.',401);
-            session_regenerate_id(true); $_SESSION['uid']=(int)$account['id'];
+    if (in_array($action,['setup','signup','login','admin_login','logout','verify_email','resend_verification'],true)) {
+        if ($action==='logout') { $_SESSION=[]; session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(32)); }
+        elseif ($action==='verify_email' || $action==='resend_verification') {
+            $account=one($db,'SELECT * FROM users WHERE id=? AND disabled_at IS NULL AND email_verified_at IS NULL',[$_SESSION['pending_uid']??0]);
+            demand((bool)$account,'Sign in or register before verifying your email.',401);
+            if ($action==='resend_verification') sendVerification($db,(int)$account['id'],$account['email']);
+            else {
+                $v=one($db,'SELECT * FROM email_verifications WHERE user_id=? AND expires_at>NOW()',[$account['id']]);
+                $code=field($d,'code',6);
+                demand((bool)preg_match('/^[0-9]{6}$/',$code) && $v && hash_equals($v['code_hash'],hash_hmac('sha256',$code,envValue('TF_APP_KEY'))),'Invalid or expired verification code.');
+                query($db,'UPDATE users SET email_verified_at=NOW() WHERE id=?',[$account['id']]);
+                query($db,'DELETE FROM email_verifications WHERE user_id=?',[$account['id']]); signIn((int)$account['id'],!empty($_SESSION['pending_admin']),(int)$account['auth_version']);
+            }
+        } elseif ($action==='login' || $action==='admin_login') {
+            $identifier=strtolower(field($d,$action==='admin_login'?'username':'email',190));
+            $account=one($db,$action==='admin_login'?'SELECT * FROM users WHERE username=? OR email=?':'SELECT * FROM users WHERE email=?',$action==='admin_login'?[$identifier,$identifier]:[$identifier]);
+            $valid=password_verify(passwordValue($d),$account['password_hash']??'$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.');
+            demand($account && $valid && !$account['disabled_at'] && (($action==='admin_login')===($account['role']==='organizer')),'Account or password is incorrect. Use the appropriate sign-in form.',401);
+            if (!$account['email_verified_at']) { $_SESSION=[]; session_regenerate_id(true); $_SESSION['pending_uid']=(int)$account['id']; $_SESSION['pending_admin']=$action==='admin_login'; $_SESSION['csrf']=bin2hex(random_bytes(32)); }
+            else { if (password_needs_rehash($account['password_hash'],PASSWORD_DEFAULT)) query($db,'UPDATE users SET password_hash=? WHERE id=?',[password_hash((string)$d['password'],PASSWORD_DEFAULT),$account['id']]); signIn((int)$account['id'],$action==='admin_login',(int)$account['auth_version']); }
         } else {
             $empty=(int)query($db,'SELECT COUNT(*) FROM users')->fetchColumn()===0;
-            demand($action!=='setup'||$empty,'Organizer setup is already complete.'); demand($action!=='signup'||!$empty,'Set up the first organizer first.');
+            demand($action!=='setup'||($empty && setupAllowed()),'Public organizer setup is disabled. Create an admin with php admin.php.',403); demand($action!=='signup'||!$empty,'The administrator must finish setup first.');
             $email=strtolower(field($d,'email',190)); demand((bool)filter_var($email,FILTER_VALIDATE_EMAIL),'Enter a valid email address.');
-            $password=(string)($d['password']??''); demand(strlen($password)>=10 && strlen($password)<=128,'Use a password of 10–128 characters.');
+            $password=passwordValue($d); strongPassword($password);
             demand(($d['fair_play']??false)===true,'Accept the fair-play agreement to continue.');
             query($db,'INSERT INTO users(name,email,password_hash,role) VALUES(?,?,?,?)',[field($d,'name',80),$email,password_hash($password,PASSWORD_DEFAULT),$action==='setup'?'organizer':'player']);
-            $_SESSION['uid']=(int)$db->lastInsertId(); session_regenerate_id(true);
+            $newUid=(int)$db->lastInsertId();
+            if ($action==='setup') { query($db,'UPDATE users SET email_verified_at=NOW() WHERE id=?',[$newUid]); signIn($newUid,true); }
+            else { sendVerification($db,$newUid,$email); $_SESSION=[]; session_regenerate_id(true); $_SESSION['pending_uid']=$newUid; $_SESSION['csrf']=bin2hex(random_bytes(32)); }
         }
     } else {
         demand((bool)$u,'Sign in to continue.',401);
@@ -73,14 +111,37 @@ try {
             $deadline=DateTimeImmutable::createFromFormat('!Y-m-d\TH:i',(string)($d['deadline']??'')); demand($deadline && $deadline->format('Y-m-d\TH:i')===$d['deadline'] && $deadline->getTimestamp()>time(),'Registration deadline must be a valid future date (Manila time).');
             query($db,'INSERT INTO events(name,game,team_size,max_teams,formation,format,race_to,deadline,roles,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[field($d,'name'),field($d,'game',100),number($d,'team_size',1,10),number($d,'max_teams',2,32),$d['formation'],$d['format'],number($d,'race_to',1,5),$deadline->format('Y-m-d H:i:s'),json_encode($roles),$u['id']]);
             $eid=(int)$db->lastInsertId(); audit($db,$eid,(int)$u['id'],'Created event and published competition rules.');
+        } elseif ($action==='set_disabled') {
+            admin($u); reauthenticate($db,$u,$d); $uid=number($d,'user_id',1,PHP_INT_MAX);
+            demand($uid!==(int)$u['id'],'You cannot disable your own admin account.');
+            demand(isset($d['disabled']) && is_bool($d['disabled']),'Choose an account status.');
+            demand((bool)one($db,'SELECT id FROM users WHERE id=?',[$uid]),'Account not found.');
+            query($db,'UPDATE users SET disabled_at=?,auth_version=auth_version+1 WHERE id=?',[$d['disabled']?date('Y-m-d H:i:s'):null,$uid]);
+            audit($db,null,(int)$u['id'],($d['disabled']?'Disabled':'Enabled')." account #$uid.");
         } elseif ($action==='set_role') {
+            admin($u); reauthenticate($db,$u,$d);
             admin($u); $uid=number($d,'user_id',1,PHP_INT_MAX); demand($uid!==(int)$u['id'],'You cannot change your own organizer role.'); demand(in_array($d['role']??'', ['player','referee','organizer'],true),'Invalid permission.');
             demand((bool)one($db,'SELECT id FROM users WHERE id=?',[$uid]),'Account not found.'); query($db,'UPDATE users SET role=? WHERE id=?',[$d['role'],$uid]); audit($db,null,(int)$u['id'],"Changed account #$uid permission to {$d['role']}.");
         } else {
             $eid=number($d,'event_id',1,PHP_INT_MAX); $e=one($db,'SELECT * FROM events WHERE id=? FOR UPDATE',[$eid]); demand((bool)$e,'Event not found.'); $e['roles']=json_decode($e['roles'],true);
             $uid=(int)$u['id'];
             switch($action) {
+                case 'edit_event':
+                    admin($u);
+                    $deadline=DateTimeImmutable::createFromFormat('!Y-m-d\TH:i',field($d,'deadline',16));
+                    demand($deadline && $deadline->format('Y-m-d\TH:i')===$d['deadline'],'Enter a valid registration deadline.');
+                    query($db,'UPDATE events SET name=?,game=?,deadline=? WHERE id=?',[field($d,'name'),field($d,'game',100),$deadline->format('Y-m-d H:i:s'),$eid]);
+                    audit($db,$eid,$uid,'Updated event name, game and registration deadline. Competition rules preserved.'); break;
+                case 'delete_event':
+                    admin($u); reauthenticate($db,$u,$d);
+                    demand(($d['confirmation']??'')===$e['name'],'Type the exact event name to delete it.');
+                    $reason=field($d,'reason',300);
+                    query($db,'DELETE FROM matches WHERE event_id=?',[$eid]);
+                    query($db,'DELETE FROM teams WHERE event_id=?',[$eid]);
+                    audit($db,null,$uid,"Deleted event #$eid ({$e['name']}). Reason: $reason");
+                    query($db,'DELETE FROM events WHERE id=?',[$eid]); break;
                 case 'register_player':
+                    demand($u['role']!=='organizer','Use a separate player account to participate.',403);
                     editable($e); demand(strtotime($e['deadline'])>=time(),'Registration deadline has passed.');
                     demand(($d['fair_play']??false)===true,'You must accept the fair-play agreement.');
                     demand((int)query($db,'SELECT COUNT(*) FROM players WHERE event_id=?',[$eid])->fetchColumn() < $e['team_size']*$e['max_teams'],'Registration is full.');
@@ -170,7 +231,7 @@ try {
     if (isset($db)&&$db->inTransaction()) $db->rollBack();
     $duplicate=$e->getCode()==='23000'; http_response_code($duplicate?409:503);
     error_log('TFv1 database: '.$e->getMessage());
-    echo json_encode(['error'=>$duplicate?'That email, game ID, team name, registration or request already exists.':'MySQL is unavailable or TFv1 has not been installed. Start MySQL in XAMPP, then run php install.php.','database_unavailable'=>!$duplicate]);
+    echo json_encode(['error'=>$duplicate?'That email, game ID, team name, registration or request already exists.':'The service is temporarily unavailable. Contact the administrator.','database_unavailable'=>!$duplicate]);
 } catch (Throwable $e) {
     if (isset($db)&&$db->inTransaction()) $db->rollBack(); http_response_code(500); error_log('TFv1: '.$e->getMessage()); echo json_encode(['error'=>'Unable to complete the request. Check your input and try again.']);
 } finally {

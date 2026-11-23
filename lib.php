@@ -1,13 +1,18 @@
 <?php
 declare(strict_types=1);
 date_default_timezone_set('Asia/Manila');
+require_once __DIR__ . '/security.php';
+require_once __DIR__ . '/mail.php';
 
 function db(bool $selectDatabase = true): PDO {
     $c = require __DIR__ . '/config.php';
     if (!preg_match('/^[a-zA-Z0-9_]+$/', $c['database'])) throw new RuntimeException('Invalid database name.');
+    if (preg_match('/[;\s\x00-\x1F]/',$c['host']) || !ctype_digit((string)$c['port']) || (int)$c['port']<1 || (int)$c['port']>65535) throw new RuntimeException('Invalid database host or port.');
     $dsn = "mysql:host={$c['host']};port={$c['port']};charset=utf8mb4";
     if ($selectDatabase) $dsn .= ";dbname={$c['database']}";
-    $pdo = new PDO($dsn, $c['username'], $c['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false]);
+    $options=[PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false];
+    if (envValue('TF_DB_SSL_CA') !== '') { $options[PDO::MYSQL_ATTR_SSL_CA]=envValue('TF_DB_SSL_CA'); $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT]=true; }
+    $pdo = new PDO($dsn, $c['username'], $c['password'], $options);
     $pdo->exec("SET time_zone = '+08:00'");
     return $pdo;
 }
@@ -20,7 +25,8 @@ function demand(bool $condition, string $message, int $status = 422): void {
     if (!$condition) { http_response_code($status); throw new DomainException($message); }
 }
 function field(array $data, string $key, int $max = 120): string {
-    $v = trim((string)($data[$key] ?? '')); demand($v !== '' && mb_strlen($v) <= $max, "Please enter a valid $key (up to $max characters)."); return $v;
+    demand(isset($data[$key]) && is_string($data[$key]), "Please enter a valid $key.");
+    $v = trim($data[$key]); demand($v !== '' && mb_check_encoding($v,'UTF-8') && !preg_match('/[\x00-\x1F\x7F]/u',$v) && mb_strlen($v) <= $max, "Please enter a valid $key (up to $max characters)."); return $v;
 }
 function number(array $data, string $key, int $min, int $max): int {
     $v = filter_var($data[$key] ?? null, FILTER_VALIDATE_INT); demand($v !== false && $v !== null && $v >= $min && $v <= $max, "$key must be between $min and $max."); return $v;

@@ -2,3 +2,10 @@ runtime/*
 !runtime/.htaccess
 !runtime/.gitkeep
 config.local.php
+vendor/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12

@@ -1,0 +1,78 @@
+<?php
+declare(strict_types=1);
+
+function envValue(string $name, string $default = '', array $aliases = []): string {
+    foreach (array_merge([$name], $aliases) as $key) {
+        $value = getenv($key);
+        if ($value !== false && $value !== '') return $value;
+    }
+    return $default;
+}
+function production(): bool { return envValue('TF_ENV', 'development') === 'production' || envValue('VERCEL') === '1'; }
+function secureRequest(): bool {
+    return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ||
+        (envValue('TF_TRUST_PROXY') === '1' && ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+}
+function securityHeaders(): void {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+    header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
+    if (secureRequest()) header('Strict-Transport-Security: max-age=31536000');
+    if (production()) ini_set('display_errors', '0');
+    ini_set('log_errors', '1');
+}
+function validateEnvironment(): void {
+    if (!production()) return;
+    if (PHP_VERSION_ID < 80200) throw new RuntimeException('Production requires a supported PHP version (8.2 or later).');
+    foreach (['TF_DB_HOST','TF_DB_NAME','TF_DB_USER','TF_DB_PASSWORD','TF_APP_KEY','TF_APP_URL'] as $key) {
+        if (envValue($key) === '') throw new RuntimeException('Production environment is incomplete.');
+    }
+    if (strlen(envValue('TF_APP_KEY')) < 32 || envValue('TF_DB_USER') === 'root' || !str_starts_with(envValue('TF_APP_URL'), 'https://')) {
+        throw new RuntimeException('Production environment is insecure.');
+    }
+    if (envValue('TF_DB_SSL_CA') === '') throw new RuntimeException('Configure verified TLS for the production database.');
+}
+function setupAllowed(): bool {
+    return !production() && in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1','::1'], true);
+}
+function strongPassword(string $password): void {
+    demand(mb_strlen($password) >= 15 && strlen($password) <= 72 && !str_contains($password, "\0"), 'Use a password of at least 15 characters and at most 72 bytes.');
+    demand(!preg_match('/^(.)\1+$/us', $password) && !in_array(strtolower($password), ['password123456789','123456789012345','qwertyuiopasdfgh','letmeinletmeinletmein'], true), 'Choose a less predictable password or a unique passphrase.');
+}
+function passwordValue(array $data, string $key = 'password'): string {
+    demand(isset($data[$key]) && is_string($data[$key]) && strlen($data[$key])<=128 && !str_contains($data[$key],"\0"),'Enter a valid password.');
+    return $data[$key];
+}
+function rateLimit(PDO $db, string $scope, string $identity, int $limit, int $seconds, bool $cooldown = false): void {
+    // Executed before the mutation transaction: failed requests consume attempts too.
+    $key = hash('sha256', $scope . ':' . $identity);
+    $bucket = $cooldown ? time() : intdiv(time(), $seconds) * $seconds;
+    if ($cooldown) query($db,'INSERT INTO rate_limits(bucket_key,window_start,hits,expires_at) VALUES(?,?,1,?) ON DUPLICATE KEY UPDATE hits=IF(expires_at<=?,1,hits+1),window_start=IF(expires_at<=?,VALUES(window_start),window_start),expires_at=IF(expires_at<=?,VALUES(expires_at),expires_at)',[$key,$bucket,$bucket+$seconds,time(),time(),time()]);
+    else query($db, 'INSERT INTO rate_limits(bucket_key,window_start,hits,expires_at) VALUES(?,?,1,?) ON DUPLICATE KEY UPDATE hits=IF(window_start=VALUES(window_start),hits+1,1),window_start=VALUES(window_start),expires_at=VALUES(expires_at)', [$key,$bucket,$bucket+$seconds]);
+    $counter=one($db,'SELECT hits,expires_at FROM rate_limits WHERE bucket_key=?',[$key]); $hits=(int)$counter['hits'];
+    if ($hits > $limit) header('Retry-After: ' . max(1, (int)$counter['expires_at']-time()));
+    demand($hits <= $limit, 'Too many attempts. Please try again later.', 429);
+    if (random_int(1,100) === 1) query($db,'DELETE FROM rate_limits WHERE expires_at < ? LIMIT 1000',[time()]);
+}
+function startSecureSession(): void {
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_trans_sid', '0');
+    session_set_cookie_params(['httponly'=>true,'samesite'=>'Strict','secure'=>secureRequest() || production(),'path'=>'/']);
+    session_start();
+    if (isset($_SESSION['uid']) && (time()-($_SESSION['last_seen']??0)>1800 || time()-($_SESSION['signed_in']??0)>28800)) {
+        $_SESSION=[]; session_regenerate_id(true);
+    }
+    $_SESSION['last_seen']=time();
+    $_SESSION['csrf'] ??= bin2hex(random_bytes(32));
+}
+function signIn(int $uid, bool $admin = false, int $version = 1): void {
+    $_SESSION=[]; session_regenerate_id(true);
+    $_SESSION['uid']=$uid; $_SESSION['admin_login']=$admin; $_SESSION['auth_version']=$version; $_SESSION['signed_in']=time(); $_SESSION['last_seen']=time(); $_SESSION['csrf']=bin2hex(random_bytes(32));
+}
+function reauthenticate(PDO $db, array $u, array $data): void {
+    $hash=query($db,'SELECT password_hash FROM users WHERE id=?',[$u['id']])->fetchColumn();
+    demand(password_verify(passwordValue($data,'admin_password'),$hash), 'Confirm your admin password to continue.',403);
+}

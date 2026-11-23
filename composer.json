@@ -1,0 +1,15 @@
+{
+  "name": "tfv1/tournament-manager",
+  "description": "PHP and MySQL tournament manager with verified registration and organizer controls",
+  "license": "proprietary",
+  "type": "project",
+  "require": {
+    "php": "^8.0",
+    "ext-pdo": "*",
+    "ext-pdo_mysql": "*",
+    "ext-mbstring": "*",
+    "ext-openssl": "*",
+    "phpmailer/phpmailer": "^7.0"
+  },
+  "config": {"allow-plugins": {}, "sort-packages": true}
+}

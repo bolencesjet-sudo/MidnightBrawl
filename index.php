@@ -1,3 +1,4 @@
+<?php require_once __DIR__.'/security.php'; securityHeaders(); ?>
 <!doctype html>
 <html lang="en" data-theme="dark">
 <head>
@@ -8,7 +9,7 @@
   <title>TFv1 — Team Fight version.1</title>
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
   <link rel="stylesheet" href="assets/style.css">
-  <script>try{document.documentElement.dataset.theme=localStorage.getItem('tf-theme')||'dark'}catch(e){}</script>
+  <script src="assets/theme.js"></script>
   <script src="assets/app.js" defer></script>
 </head>
 <body>
