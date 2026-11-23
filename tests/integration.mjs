@@ -25,7 +25,9 @@ class Client{
 }
 try{
  const installed=spawnSync('php',['install.php'],{cwd:root,env,encoding:'utf8'});assert.equal(installed.status,0,installed.stderr);
- server=spawn('php',['-d',`openssl.cafile="${smtp.ca}"`,'-S',`127.0.0.1:${port}`,'-t',root,...(process.argv.includes('--vercel')?['tests/vercel-router.php']:[])],{cwd:root,env,stdio:'ignore'});
+ // PHP buffers larger request bodies in upload_tmp_dir before executing the API.
+ // Keep those temporary files inside the writable test workspace.
+ server=spawn('php',['-d',`openssl.cafile="${smtp.ca}"`,'-d',`upload_tmp_dir=${path.join(root,'runtime')}`,'-S',`127.0.0.1:${port}`,'-t',root,...(process.argv.includes('--vercel')?['tests/vercel-router.php']:[])],{cwd:root,env,stdio:'ignore'});
  for(let i=0;i<60;i++){try{await (await fetch(base)).text();break}catch{await new Promise(r=>setTimeout(r,100))}}
  const admin=await new Client().signup('Organizer',true),ref=await new Client().signup('Official');
  const cli=spawnSync('php',['admin.php'],{cwd:root,env:{...env,TF_ADMIN_USERNAME:'test-administrator',TF_ADMIN_EMAIL:'cli-admin@example.test',TF_ADMIN_PASSWORD:'TFv1-test-password-42'},encoding:'utf8'});
@@ -114,13 +116,23 @@ try{
  await pendingUser.act('verify_email',{code:replacementCode});
  await pendingUser.act('verify_email',{code:replacementCode},401);
  const invalid=await fetch(base,{method:'POST',headers:{Cookie:pendingUser.cookie,'Content-Type':'application/json','X-CSRF-Token':pendingUser.csrf},body:'{"action":'});await invalid.text();check(invalid.status===400,'Malformed JSON must return 400.');
- const tooLarge=await fetch(base,{method:'POST',headers:{Cookie:pendingUser.cookie,'Content-Type':'application/json','X-CSRF-Token':pendingUser.csrf},body:JSON.stringify({action:'login',padding:'x'.repeat(17000)})});await tooLarge.text();check(tooLarge.status===413,'Oversized JSON must return 413.');
+ const tooLarge=await fetch(base,{method:'POST',headers:{Cookie:pendingUser.cookie,'Content-Type':'application/json','X-CSRF-Token':pendingUser.csrf},body:JSON.stringify({action:'login',padding:'x'.repeat(17000)})});const tooLargeBody=await tooLarge.text();check(tooLarge.status===413,`Oversized JSON must return 413 (received ${tooLarge.status}: ${tooLargeBody}).`);
  await pendingUser.act('login',{email:'verify@example.test',password:[]},422);
  const limited=new Client();await limited.request();
  for(let i=0;i<10;i++)await limited.act('login',{email:'missing@example.test',password:'wrong'},401);
  await limited.act('login',{email:'missing@example.test',password:'wrong'},429);
  const headers=await fetch(base);await headers.text();check(headers.headers.get('content-security-policy')?.includes("script-src 'self';"),'Scripts must be protected by CSP.');check(!headers.headers.has('access-control-allow-origin'),'API must not allow cross-origin reads.');
  console.log(`PASS: ${checks} integration assertions — accounts, MySQL persistence, all three formation modes, check-in, roster locks, round robin, all five races, referee separation, corrections, standings, CSRF and audit-safe reset.`);
+ // Simulate the missing security table behind the reconnect warning in this isolated database.
+ const beforeMigration=JSON.stringify((await admin.request()).events);
+ const missingTable=spawnSync('php',['-r',`require 'lib.php'; $c=require 'config.php'; if(!preg_match('/^tfv1_test_[a-f0-9]{12}$/',$c['database']))exit(1); db()->exec('DROP TABLE rate_limits');`],{cwd:root,env,encoding:'utf8'});
+ check(missingTable.status===0,'Only the isolated test database may simulate an outdated schema.');
+ const unavailable=await admin.request(undefined,503);
+ check(unavailable.schema_required===true&&unavailable.error.includes('php migrate.php'),'Missing security tables must identify the required migration.');
+ const migrated=spawnSync('php',['migrate.php'],{cwd:root,env,encoding:'utf8'});
+ check(migrated.status===0,'The additive migration must restore availability.');
+ check(JSON.stringify((await admin.request()).events)===beforeMigration,'Migration must preserve all tournament state and the admin session.');
+ console.log('PASS: missing security table diagnosis and migration recovery with tournament state preserved.');
 }finally{
  if(server){server.kill();await new Promise(r=>server.once('exit',r))}
  await smtp.close();

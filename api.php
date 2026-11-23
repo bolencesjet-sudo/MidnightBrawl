@@ -230,9 +230,13 @@ try {
     if (isset($db)&&$db->inTransaction()) $db->rollBack(); if (http_response_code()<400) http_response_code(422); echo json_encode(['error'=>$e->getMessage()]);
 } catch (PDOException $e) {
     if (isset($db)&&$db->inTransaction()) $db->rollBack();
-    $duplicate=$e->getCode()==='23000'; http_response_code($duplicate?409:503);
+    $duplicate=$e->getCode()==='23000';
+    $schemaRequired=in_array((int)($e->errorInfo[1]??0),[1146,1054],true);
+    http_response_code($duplicate?409:503);
     error_log('TFv1 database: '.$e->getMessage());
-    echo json_encode(['error'=>$duplicate?'That email, game ID, team name, registration or request already exists.':'The service is temporarily unavailable. Contact the administrator.','database_unavailable'=>!$duplicate]);
+    $message=$duplicate?'That email, game ID, team name, registration or request already exists.':'The service is temporarily unavailable. Contact the administrator.';
+    if ($schemaRequired) $message=setupAllowed()?'The database needs an update. Run php migrate.php from the TFv1 folder, then try again. Existing tournament data will be preserved.':'The service needs a database update. Please contact the administrator.';
+    echo json_encode(['error'=>$message,'database_unavailable'=>!$duplicate,'schema_required'=>$schemaRequired]);
 } catch (Throwable $e) {
     if (isset($db)&&$db->inTransaction()) $db->rollBack(); http_response_code(500); error_log('TFv1: '.$e->getMessage()); echo json_encode(['error'=>'Unable to complete the request. Check your input and try again.']);
 } finally {
