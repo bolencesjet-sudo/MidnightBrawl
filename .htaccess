@@ -1,0 +1,7 @@
+Options -Indexes
+<FilesMatch "^(config|lib|install)\.php$">
+  Require all denied
+</FilesMatch>
+<FilesMatch "\.(md|sql|log|json|mjs)$">
+  Require all denied
+</FilesMatch>
