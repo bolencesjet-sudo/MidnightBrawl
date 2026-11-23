@@ -50,7 +50,7 @@ try {
     demand($_SERVER['REQUEST_METHOD']==='POST','Method not allowed.',405);
     demand(strtolower(trim(explode(';',$_SERVER['CONTENT_TYPE']??'')[0]))==='application/json','Use application/json.',415);
     $origin=$_SERVER['HTTP_ORIGIN']??'';
-    if ($origin!=='' && envValue('TF_APP_URL')!=='') demand(rtrim($origin,'/')===rtrim(envValue('TF_APP_URL'),'/'),'Origin is not allowed.',403);
+    demand(requestOriginAllowed($origin),'Origin is not allowed. Open the official tournament website and try again. If this continues, ask the organizer to check the website URL configuration.',403);
     demand(hash_equals($_SESSION['csrf'],$_SERVER['HTTP_X_CSRF_TOKEN']??''),'Session expired. Refresh the page and try again.',403);
     $raw=file_get_contents('php://input',false,null,0,16385); demand(strlen($raw)<=16384,'Request is too large.',413);
     try { $d=json_decode($raw,true,16,JSON_THROW_ON_ERROR); } catch (JsonException $e) { demand(false,'Invalid JSON.',400); }

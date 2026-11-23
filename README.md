@@ -19,6 +19,29 @@ Follow [DEPLOYMENT.md](DEPLOYMENT.md). `vercel.json` declares an executable PHP 
 
 ## Run a tournament
 
+### Registration example
+
+1. Open the official tournament URL and click **Register** in the upper-right corner.
+2. Enter your name (for example, `Juan Dela Cruz`), an email inbox you control, and a unique password of at least 15 characters (maximum 72 bytes). Accept the fair-play agreement and click **Create account**.
+3. Enter the six-digit code from your email within 10 minutes. If needed, wait one minute before requesting another code.
+4. Select an event with open registration. Under **Players**, click **Register to play**. Enter a display name such as `JuanDC`, your actual game ID/server, and a preferred position from the event's list. The secondary position is optional and must be different. Accept fair play and click **Register player**.
+5. Find your entry in **Players** and click **Check in** before team selection.
+
+The administrator must complete initial setup first. Use a separate player account to participate if you are an organizer. Email verification requires working SMTP.
+
+### Fixing “Origin is not allowed”
+
+This message means the API rejected the website address used to submit the form. It happens before account creation or event registration. `TF_APP_URL` must identify the official website you open in your browser.
+
+- Hosted example: open `https://midnightbrawl.vercel.app` and set `TF_APP_URL=https://midnightbrawl.vercel.app` on the host executing PHP. If you use another domain, configure that domain instead. Update the appropriate hosting environment and redeploy/restart PHP so it receives the setting.
+- Local XAMPP example: open `http://localhost/TFv1/` and set `TF_APP_URL=http://localhost` in Apache/PHP's process environment. Include a nonstandard port if used, such as `http://localhost:8080`. Restart Apache after changing its environment. `.env.example` is a reference; this application does not load `.env` files.
+- An app path such as `/TFv1/`, hostname capitalization and default ports are normalized by the API. Different domains, HTTP versus HTTPS, and different nonstandard ports remain blocked. `localhost` and `127.0.0.1` are different hosts.
+- For a Vercel preview, prefer the official production URL for registration. If testing a preview is necessary, configure its exact URL in that preview's environment with separate test database/email settings. Avoid wildcard CORS or removing the origin/CSRF checks.
+
+After correcting the setting, reopen the official URL, refresh the page for a fresh session, and retry. Run `php tests/origin.php` to check origin matching locally.
+
+### Tournament workflow
+
 - Create an event with independent **team size**, **formation mode**, **format**, **race target**, **deadline (Asia/Manila)**, and **game positions**. Competition rules are fixed at creation; admins can edit the name, game label and deadline, or delete an event with password confirmation.
 - Players create accounts, register their display name, unique event game ID and preferred positions, accept the fair-play code, then check in. One registration per account per event. Organizers may check in players, and captains may check in their roster.
 - **Captain Mode:** the organizer creates teams with available checked-in captains; captains pick players in snake order. The organizer can make a pick on a captain's behalf. Create all teams before beginning the draft.

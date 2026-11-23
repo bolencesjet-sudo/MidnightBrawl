@@ -9,6 +9,26 @@ function envValue(string $name, string $default = '', array $aliases = []): stri
     return $default;
 }
 function production(): bool { return envValue('TF_ENV', 'development') === 'production' || envValue('VERCEL') === '1'; }
+function urlOrigin(string $url, bool $originOnly = false): ?string {
+    // Browser origins contain scheme, host and effective port, never an app path.
+    if ($url === '' || preg_match('/[\s\\\\]/', $url)) return null;
+    $parts = parse_url($url);
+    if ($parts === false || empty($parts['scheme']) || empty($parts['host']) ||
+        isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])) return null;
+    $scheme = strtolower($parts['scheme']);
+    if (!in_array($scheme, ['http','https'], true)) return null;
+    if ($originOnly && !in_array($parts['path'] ?? '', ['', '/'], true)) return null;
+    $port = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
+    if ($port < 1 || $port > 65535) return null;
+    return $scheme.'://'.strtolower($parts['host']).':'.$port;
+}
+function requestOriginAllowed(string $origin): bool {
+    $appUrl = trim(envValue('TF_APP_URL'));
+    // Preserve development and non-browser clients; CSRF is still checked by the API.
+    if ($origin === '' || $appUrl === '') return true;
+    $expected = urlOrigin($appUrl);
+    return $expected !== null && urlOrigin($origin, true) === $expected;
+}
 function secureRequest(): bool {
     return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ||
         (envValue('TF_TRUST_PROXY') === '1' && ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');

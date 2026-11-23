@@ -9,12 +9,13 @@ const database='tfv1_test_'+randomBytes(6).toString('hex');
 const smtp=await startTestSMTP(root);
 const env={...process.env,TF_ENV:'development',VERCEL:'',TF_DB_NAME:database,TF_SESSION_STORE:'database',...smtp.env};
 const port=19000+Math.floor(Math.random()*1000),base=`http://127.0.0.1:${port}/api.php`;
+env.TF_APP_URL=`${new URL(base).origin}/TFv1/`;
 let server,checks=0;
 const check=(value,message)=>{assert.ok(value,message);checks++};
 class Client{
  cookie='';csrf='';state=null;
- async request(data,expected=200){
-  const res=await fetch(base,{method:data?'POST':'GET',headers:{Cookie:this.cookie,...(data?{'Content-Type':'application/json','X-CSRF-Token':this.csrf}:{})},body:data?JSON.stringify(data):undefined});
+ async request(data,expected=200,origin=new URL(base).origin){
+  const res=await fetch(base,{method:data?'POST':'GET',headers:{Cookie:this.cookie,...(data?{'Content-Type':'application/json','X-CSRF-Token':this.csrf,Origin:origin}:{})},body:data?JSON.stringify(data):undefined});
   for(const cookie of res.headers.getSetCookie()) if(cookie.startsWith('PHPSESSID='))this.cookie=cookie.split(';')[0];
   const raw=await res.text();let json;try{json=JSON.parse(raw)}catch{throw Error(`Invalid API JSON (${res.status}): ${raw.slice(0,2000)}`)}assert.equal(res.status,expected,json.error||`Unexpected status for ${data?.action||"state"}`);checks++;
   if(res.ok){this.state=json.state||json;this.csrf=this.state.csrf}return json;
@@ -30,6 +31,9 @@ try{
  server=spawn('php',['-d',`openssl.cafile="${smtp.ca}"`,'-d',`upload_tmp_dir=${path.join(root,'runtime')}`,'-S',`127.0.0.1:${port}`,'-t',root,...(process.argv.includes('--vercel')?['tests/vercel-router.php']:[])],{cwd:root,env,stdio:'ignore'});
  for(let i=0;i<60;i++){try{await (await fetch(base)).text();break}catch{await new Promise(r=>setTimeout(r,100))}}
  const admin=await new Client().signup('Organizer',true),ref=await new Client().signup('Official');
+ const rejectedOrigin=await admin.request({action:'logout'},403,'https://foreign.example.test');
+ check(rejectedOrigin.error.startsWith('Origin is not allowed.'),'Foreign origins must be rejected even with a valid CSRF token.');
+ await admin.request();check(admin.state.user?.role==='organizer','Rejected origin must preserve the signed-in session.');
  const cli=spawnSync('php',['admin.php'],{cwd:root,env:{...env,TF_ADMIN_USERNAME:'test-administrator',TF_ADMIN_EMAIL:'cli-admin@example.test',TF_ADMIN_PASSWORD:'TFv1-test-password-42'},encoding:'utf8'});
  check(cli.status===0,'CLI must create a separate administrator.');
  const cliAdmin=new Client();await cliAdmin.request();await cliAdmin.act('admin_login',{username:'test-administrator',password:'TFv1-test-password-42'});
