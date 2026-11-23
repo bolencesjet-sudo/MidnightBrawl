@@ -25,7 +25,7 @@ class Client{
 }
 try{
  const installed=spawnSync('php',['install.php'],{cwd:root,env,encoding:'utf8'});assert.equal(installed.status,0,installed.stderr);
- server=spawn('php',['-d',`openssl.cafile="${smtp.ca}"`,'-S',`127.0.0.1:${port}`,'-t',root],{cwd:root,env,stdio:'ignore'});
+ server=spawn('php',['-d',`openssl.cafile="${smtp.ca}"`,'-S',`127.0.0.1:${port}`,'-t',root,...(process.argv.includes('--vercel')?['tests/vercel-router.php']:[])],{cwd:root,env,stdio:'ignore'});
  for(let i=0;i<60;i++){try{await (await fetch(base)).text();break}catch{await new Promise(r=>setTimeout(r,100))}}
  const admin=await new Client().signup('Organizer',true),ref=await new Client().signup('Official');
  const cli=spawnSync('php',['admin.php'],{cwd:root,env:{...env,TF_ADMIN_USERNAME:'test-administrator',TF_ADMIN_EMAIL:'cli-admin@example.test',TF_ADMIN_PASSWORD:'TFv1-test-password-42'},encoding:'utf8'});

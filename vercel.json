@@ -1,0 +1,31 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "",
+  "outputDirectory": ".",
+  "env": {
+    "TF_ENV": "production",
+    "TF_SESSION_STORE": "database",
+    "TF_TRUST_PROXY": "1"
+  },
+  "functions": {
+    "api/entry.php": {
+      "runtime": "vercel-php@0.9.0",
+      "maxDuration": 60
+    }
+  },
+  "routes": [
+    {
+      "src": "/assets/(app\\.js|theme\\.js|style\\.css|logo\\.svg)",
+      "dest": "/assets/$1",
+      "headers": {"X-Content-Type-Options": "nosniff"}
+    },
+    {"src": "/", "dest": "/api/entry.php?tf_route=page"},
+    {"src": "/index\\.php", "dest": "/api/entry.php?tf_route=page"},
+    {"src": "/api\\.php", "dest": "/api/entry.php?tf_route=api"},
+    {"src": "/health", "dest": "/api/entry.php?tf_route=health"},
+    {"src": "/.*", "status": 404}
+  ]
+}

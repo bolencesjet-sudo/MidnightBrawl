@@ -1,4 +1,5 @@
-# Vercel detects this filename as the Container framework preset.
+# Optional container deployment. Build from the repository root with:
+# docker build -f deploy/Dockerfile -t midnight-brawl .
 FROM dunglas/frankenphp:1-php8.4-alpine AS base
 WORKDIR /app
 RUN install-php-extensions pdo_mysql mbstring \

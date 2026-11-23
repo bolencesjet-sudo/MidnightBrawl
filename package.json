@@ -1,0 +1,5 @@
+{
+  "name": "midnight-brawl-hosting",
+  "private": true,
+  "engines": {"node": "22.x"}
+}

@@ -15,7 +15,7 @@ Use a supported PHP release (8.2+ required in production) with `pdo_mysql` and `
 
 ## Deploy on Vercel
 
-Follow [DEPLOYMENT.md](DEPLOYMENT.md). `Dockerfile.vercel` selects a PHP container instead of static file hosting; production sessions use the shared MySQL database. Configure the hosted database and SMTP environment variables and run the additive migration before releasing registration.
+Follow [DEPLOYMENT.md](DEPLOYMENT.md). `vercel.json` declares an executable PHP function and explicit routes instead of relying on static file hosting; production sessions use the shared MySQL database. Configure the hosted database and SMTP environment variables and run the additive migration before releasing registration.
 
 ## Run a tournament
 

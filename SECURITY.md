@@ -55,7 +55,7 @@ Signup creates an unverified player and sends a six-digit code. No player sessio
 5. Save the variables and create a new deployment/redeploy. Changed variables do not update existing deployments.
 6. On staging, register a fresh player email, receive the code, verify it, and check sign-in and resend behavior. Verify that production and previews do not share the same database or SMTP credentials.
 
-**Vercel deployment:** see [DEPLOYMENT.md](DEPLOYMENT.md). This repository now provides Vercel?s documented PHP Container setup in `Dockerfile.vercel`, a private public-directory boundary, and durable MySQL sessions. The runtime uses the same PHP application and same-origin API. Configure the hosted Clever Cloud database and SMTP settings, apply the additive schema migration, and verify the live deployment. `.htaccess` remains for XAMPP/Apache; the container uses Caddy and its public front controller instead.
+**Vercel deployment:** see [DEPLOYMENT.md](DEPLOYMENT.md). This repository now provides explicit Vercel PHP-function routing in `vercel.json`, a fixed entry point and durable MySQL sessions. The optional container configuration is retained in `deploy/Dockerfile`. The runtime uses the same PHP application and same-origin API. Configure the hosted Clever Cloud database and SMTP settings, apply the additive schema migration, and verify the live deployment. `.htaccess` remains for XAMPP/Apache; the container uses Caddy and its public front controller instead.
 
 References: [Vercel runtimes](https://vercel.com/docs/functions/runtimes), [Vercel environment variables](https://vercel.com/docs/environment-variables), [PHPMailer SMTP documentation](https://github.com/PHPMailer/PHPMailer).
 
