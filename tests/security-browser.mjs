@@ -1,6 +1,8 @@
 // Start a local headless Chrome with --remote-debugging-port=9227 first.
 import assert from 'node:assert/strict';
-const pages=await(await fetch('http://127.0.0.1:9227/json/list')).json();
+const debugPort=process.env.TF_BROWSER_DEBUG_PORT||'9227';
+let pages;
+for(let i=0;i<80;i++){try{pages=await(await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();break}catch(error){if(i===79)throw error;await new Promise(r=>setTimeout(r,100))}}
 const target=pages.find(p=>p.type==='page');assert.ok(target,'Chrome test page is required.');
 const socket=new WebSocket(target.webSocketDebuggerUrl);await new Promise(r=>socket.addEventListener('open',r,{once:true}));
 let id=0,checks=0;const pending=new Map(),errors=[];
@@ -10,6 +12,37 @@ const evaluate=async expression=>{const r=await send('Runtime.evaluate',{express
 const check=(v,message)=>{assert.ok(v,message);checks++};
 try{
  await send('Page.enable');await send('Runtime.enable');
+ await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+ let blockedPosts=0,recovered=false,acceptedCsrf=false;
+ const offline=async ev=>{const msg=JSON.parse(ev.data);if(msg.method!=='Fetch.requestPaused')return;const post=msg.params.request.method==='POST';if(post)blockedPosts++;
+  const fixture={user:null,csrf:'recovered-csrf-fixture',needsSetup:false,verificationRequired:false,events:[],users:[]};
+  if(recovered&&post){acceptedCsrf=Object.entries(msg.params.request.headers).some(([key,value])=>key.toLowerCase()==='x-csrf-token'&&value===fixture.csrf);fixture.user={id:888,name:'Recovery Fixture',email:'fixture@example.test',role:'player'}}
+  const result=recovered?(post?{ok:true,state:fixture}:fixture):{error:'Service temporarily unavailable.'};
+  await send('Fetch.fulfillRequest',{requestId:msg.params.requestId,responseCode:recovered?200:503,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:Buffer.from(JSON.stringify(result)).toString('base64')})};
+ socket.addEventListener('message',offline);
+ await send('Fetch.enable',{patterns:[{urlPattern:'*api.php*',requestStage:'Request'}]});
+ await send('Page.navigate',{url:'http://localhost/TFv1/'});
+ for(let i=0;i<80;i++){if(await evaluate('!!document.querySelector(".account-actions")&&!!document.querySelector("[data-action=reload]")'))break;await new Promise(r=>setTimeout(r,100))}
+ check(await evaluate('!!document.querySelector("#account [data-action=login]")'),'Sign-in must remain visible when the API fails.');
+ check(await evaluate('!!document.querySelector("#account [data-action=signup]")'),'Registration must remain visible when the API fails.');
+ check(await evaluate('!!document.querySelector("#account [data-action=admin_login]")'),'Admin sign-in must remain visible when the API fails.');
+ await evaluate('document.querySelector("#account [data-action=login]").click()');
+ check(await evaluate('!!document.querySelector("form[data-submit=login]")'),'Sign-in form must open during a service outage.');
+ await evaluate('document.querySelector("input[name=email]").value="fixture@example.test";document.querySelector("input[name=password]").value="Fixture-passphrase-42";document.querySelector("#dialog-form").requestSubmit()');
+ for(let i=0;i<50;i++){if(await evaluate('document.querySelector(".form-error").textContent.includes("server reconnects")'))break;await new Promise(r=>setTimeout(r,50))}
+ check(await evaluate('document.querySelector(".form-error").textContent.includes("server reconnects")'),'Unavailable authentication must give a helpful error without a JavaScript exception.');
+ check(blockedPosts===0,'Credentials must not be posted without a valid CSRF session.');
+ await evaluate('document.querySelector("#modal").close();document.querySelector("#account [data-action=signup]").click()');
+ check(await evaluate('!!document.querySelector("form[data-submit=signup]")'),'Registration form must open during a service outage.');
+ await evaluate('document.querySelector("#modal").close()');
+ await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+ check(await evaluate('document.documentElement.scrollWidth<=innerWidth'),'Guest account controls must fit a mobile viewport.');
+ recovered=true;
+ await evaluate('authModal("login");document.querySelector("input[name=email]").value="fixture@example.test";document.querySelector("input[name=password]").value="Fixture-passphrase-42";document.querySelector("#dialog-form").requestSubmit()');
+ for(let i=0;i<60;i++){if(await evaluate('state?.user?.id===888'))break;await new Promise(r=>setTimeout(r,50))}
+ check(acceptedCsrf,'Login after recovery must obtain and send a fresh CSRF token.');
+ check(await evaluate('state?.user?.id===888&&!!document.querySelector("#account [data-action=account]")'),'Login must recover without reloading the page when the service returns.');
+ await send('Fetch.disable');socket.removeEventListener('message',offline);
  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  await send('Page.navigate',{url:'http://localhost/TFv1/'});
  for(let i=0;i<100;i++){if(await evaluate('typeof state!=="undefined"&&!!state'))break;await new Promise(r=>setTimeout(r,100))}
@@ -36,5 +69,5 @@ try{
  check(await evaluate('!document.querySelector("[data-action=edit-event]")&&!document.querySelector("[data-action=delete-event]")&&!document.querySelector("a[href=\\"#admin\\"]")'),'Players must not see admin controls.');
  for(const width of [390,1440]){await send('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<500});check(await evaluate('document.documentElement.scrollWidth<=innerWidth'),`Settings must fit ${width}px viewport.`)}
  check(errors.length===0,'No browser JavaScript exceptions.');
- console.log(`PASS: ${checks} browser assertions — admin controls, verification, password requirements, XSS escaping, responsive settings and JavaScript execution under CSP.`);
+ console.log(`PASS: ${checks} browser assertions — account controls during outages, secure recovery, admin controls, verification, password requirements, XSS escaping, responsive settings and execution under CSP.`);
 }finally{socket.close()}

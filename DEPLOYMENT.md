@@ -11,7 +11,11 @@ This checkout now includes explicit `vercel.json` routing and a PHP function at 
 - `/` and `/index.php` execute the existing page. `/api.php` executes the existing API. `/health` reports that PHP is running. All other paths return a JSON 404. There are no public installer/admin CLI/database/source-file routes.
 - Production sessions live in MySQL's `web_sessions` table and use database locks, so login and CSRF state survive container restarts and work across instances. Session cookie identifiers are hashed before storage.
 - Deployment ignore files omit Git, runtime backups, `.env` files, SQL exports, tests and local credentials. PHP libraries are bundled for execution and cannot be downloaded through the route table.
-- The function trusts the HTTPS forwarding header supplied by Vercel?s proxy. `api/php.ini` disables debug output and file uploads.
+- The function trusts the HTTPS forwarding header supplied by Vercel's proxy. `api/php.ini` disables debug output and file uploads.
+
+The Vercel project Node.js setting and `package.json` both use **22.x**, matching this PHP runtime. Node starts the PHP launcher; changing that setting does not migrate the database or fix a missing database certificate.
+
+Sign in, Register and Admin sign-in are always available in the upper-right account controls, including while event data is unavailable. The forms still require a working backend to authenticate or create accounts. A form opened during an outage obtains a fresh session/CSRF token when service returns before submitting credentials.
 
 ## Configure the existing Vercel project
 

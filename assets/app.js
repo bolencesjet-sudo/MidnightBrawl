@@ -45,7 +45,12 @@ function notice(content,warning=false){return `<div class="notice ${warning?'war
 function empty(title,description,action=''){return `<div class="empty-state"><span>${icon('shield')}</span><h3>${title}</h3><p>${description}</p>${action}</div>`}
 function hydrateIcons(){document.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon))}
 function toast(message){$('#toast').textContent=message;$('#toast').classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').classList.remove('show'),4200)}
+function renderAccount(){
+ const user=state?.user;
+ $('#account').innerHTML=user?`<button class="account-button" data-action="account"><span class="avatar">${esc(initials(user.name))}</span><span>${esc(user.name)}<small>${esc(user.role)}</small></span></button>`:`<div class="account-actions">${state?.needsSetup?btn('Set up organizer','setup','','small'):btn('Sign in','login','','small')}${btn('Register','signup','','small primary')}${btn('Admin sign in','admin_login','','small ghost')}</div>`;
+}
 async function load(){
+ renderAccount();
  try{const response=await fetch('api.php',{cache:'no-store'});const data=await response.json();if(!response.ok)throw Error(data.error);state=data;render();if(state.verificationRequired)verificationModal()}
  catch(error){if(!['localhost','127.0.0.1','::1','[::1]'].includes(location.hostname)){$('#main').innerHTML=heading('The arena is temporarily unavailable.','Please try again shortly. If this continues, contact the organizer.')+'<section class="panel"><div class="panel-body">'+btn('Try again','reload','bolt','primary')+'</div></section>';hydrateIcons();return;}$('#main').innerHTML=`<div class="page-heading"><div><div class="eyebrow">TFv1 / LOCAL SETUP</div><h1>Let’s connect your arena.</h1></div></div><div class="panel"><div class="panel-body">${notice(esc(error.message),true)}<h2 style="font-size:18px;margin-bottom:15px">MySQL setup</h2><ol class="rules-list"><li>Start <strong>Apache</strong> and <strong>MySQL</strong> in the XAMPP Control Panel.</li><li>Check the connection settings in <strong>config.php</strong>.</li><li>In the TFv1 folder, run <strong>php install.php</strong> to create the MySQL database and sample tournament.</li><li>Reload this page and select <strong>Set up organizer</strong>.</li></ol>${btn('Try connection again','reload','bolt','primary')}</div></div>`;hydrateIcons()}
 }
@@ -53,6 +58,12 @@ async function mutate(action,data={},message='Saved successfully.'){
  if(busy)return false;busy=true;
  document.querySelectorAll('#modal button[type=submit]').forEach(b=>b.disabled=true);
  try{
+  if(!state?.csrf){
+   const sessionResponse=await fetch('api.php',{cache:'no-store'});
+   if(!sessionResponse.ok)throw Error('Sign-in and registration are temporarily unavailable while the server reconnects. Please try again shortly.');
+   state=await sessionResponse.json();
+   if(typeof state.csrf!=='string')throw Error('Please reload the page before signing in.');
+  }
   const response=await fetch('api.php',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({action,event_id:event()?.id,...data})});
   const result=await response.json();if(!response.ok)throw Error(result.error||'Request failed.');
   state=result.state;if(action==='create_event'&&result.created_event_id){activeEvent=Number(result.created_event_id);roundFilter='all';statusFilter='all'}
@@ -67,7 +78,7 @@ function render(){
  const e=event();if(e){activeEvent=Number(e.id);try{localStorage.setItem('tf-event',String(activeEvent))}catch(err){}}
  $('#navigation').innerHTML=nav.filter(([id])=>id!=='admin'||isAdmin()).map(([id,ic,label])=>`<a class="nav-link ${id===view?'active':''}" href="#${id}" ${id===view?'aria-current="page"':''}>${icon(ic)}${label}${id==='matches'&&e?.matches.some(m=>m.status==='pending')?`<span class="nav-count">${e.matches.filter(m=>m.status==='pending').length}</span>`:''}</a>`).join('');
  $('#breadcrumb-title').textContent=nav.find(x=>x[0]===view)[2];
- $('#account').innerHTML=state.user?`<button class="account-button" data-action="account"><span class="avatar">${esc(initials(state.user.name))}</span><span>${esc(state.user.name)}<small>${esc(state.user.role)}</small></span></button>`:btn(state.needsSetup?'Set up organizer':'Sign in',state.needsSetup?'setup':'login','','small')+btn('Admin sign in','admin_login','','small ghost');
+ renderAccount();
  const titles={overview:['Tournament overview','Good games start with a well-organized arena.'],players:['The player pool','Register, check in, and get ready to play.'],teams:['Build your squad','Different paths. One team. The same fair fight.'],matches:['Match center','Every matchup, every result, all in one place.'],standings:['The leaderboard','Earn your place. Only confirmed results count.'],settings:['Event settings','Set the rules, manage access, and keep the competition fair.']};
  const action=isAdmin()?btn('Create event','create-event','plus','primary'):(!state.user?btn('Join the competition',state.needsSetup?'setup':'signup','plus','primary'):'');
  titles.admin=['Admin accounts','Manage account access with your separate administrator account.']; let content=heading(...titles[view],action);
