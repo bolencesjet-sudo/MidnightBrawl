@@ -23,18 +23,20 @@ function securityHeaders(): void {
     if (production()) ini_set('display_errors', '0');
     ini_set('log_errors', '1');
 }
+final class ServiceConfigurationException extends RuntimeException {}
+
 function validateEnvironment(): void {
     if (!production()) return;
-    if (PHP_VERSION_ID < 80200) throw new RuntimeException('Production requires a supported PHP version (8.2 or later).');
+    if (PHP_VERSION_ID < 80200) throw new ServiceConfigurationException('Production requires a supported PHP version (8.2 or later).');
     foreach (['TF_APP_KEY','TF_APP_URL'] as $key) {
-        if (envValue($key) === '') throw new RuntimeException('Production environment is incomplete.');
+        if (envValue($key) === '') throw new ServiceConfigurationException('Production environment is missing '.$key.'.');
     }
     $c=require __DIR__.'/config.php';
-    foreach (['host','database','username','password'] as $key) if ($c[$key]==='') throw new RuntimeException('Production database environment is incomplete.');
+    foreach (['host','database','username','password'] as $key) if ($c[$key]==='') throw new ServiceConfigurationException('Production database setting is missing: '.$key.'.');
     if (strlen(envValue('TF_APP_KEY')) < 32 || strtolower($c['username']) === 'root' || !str_starts_with(envValue('TF_APP_URL'), 'https://')) {
-        throw new RuntimeException('Production environment is insecure.');
+        throw new ServiceConfigurationException('Production requires a strong TF_APP_KEY, a dedicated database user and an HTTPS TF_APP_URL.');
     }
-    if (envValue('TF_DB_SSL_CA') === '' && envValue('TF_DB_SSL_CA_PEM') === '') throw new RuntimeException('Configure verified TLS for the production database.');
+    if (envValue('TF_DB_SSL_CA') === '' && envValue('TF_DB_SSL_CA_PEM') === '') throw new ServiceConfigurationException('Configure verified TLS for the production database.');
 }
 function setupAllowed(): bool {
     return !production() && in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1','::1'], true);

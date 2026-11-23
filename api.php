@@ -237,8 +237,12 @@ try {
     $message=$duplicate?'That email, game ID, team name, registration or request already exists.':'The service is temporarily unavailable. Contact the administrator.';
     if ($schemaRequired) $message=setupAllowed()?'The database needs an update. Run php migrate.php from the TFv1 folder, then try again. Existing tournament data will be preserved.':'The service needs a database update. Please contact the administrator.';
     echo json_encode(['error'=>$message,'database_unavailable'=>!$duplicate,'schema_required'=>$schemaRequired]);
+} catch (ServiceConfigurationException $e) {
+    http_response_code(503);
+    error_log('TFv1 configuration: '.$e->getMessage());
+    echo json_encode(['error'=>'The server setup is incomplete. Please contact the organizer.','code'=>'server_configuration']);
 } catch (Throwable $e) {
-    if (isset($db)&&$db->inTransaction()) $db->rollBack(); http_response_code(500); error_log('TFv1: '.$e->getMessage()); echo json_encode(['error'=>'Unable to complete the request. Check your input and try again.']);
+    if (isset($db)&&$db->inTransaction()) $db->rollBack(); http_response_code(500); error_log('TFv1: '.$e->getMessage()); echo json_encode(['error'=>'The server could not complete the request. Please try again later or contact the organizer.']);
 } finally {
     if (isset($db)) { try { query($db,"SELECT RELEASE_LOCK('tfv1_mutation')"); } catch (Throwable $ignored) {} }
 }
