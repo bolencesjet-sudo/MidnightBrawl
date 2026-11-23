@@ -45,6 +45,8 @@ This checkout now includes explicit `vercel.json` routing and a PHP function at 
 
 `MYSQL_ADDON_HOST`, `MYSQL_ADDON_PORT`, `MYSQL_ADDON_DB`, `MYSQL_ADDON_USER` and `MYSQL_ADDON_PASSWORD` are also accepted for Clever Cloud connection values. Explicit `TF_DB_*` names take precedence. Production requires verified TLS; there is no option to disable certificate verification. If the selected database plan does not offer a verified TLS connection, obtain a provider-supported secure connection before using it for production.
 
+The existing Vercel project's complete legacy set `HOST`, `DB_NAME`, `USER`, and `PASSWORD` is also supported. All four must be present before any are used, so an operating-system `USER` setting cannot accidentally become the database login. Existing sensitive Vercel values can stay in place; their values do not need to be printed or copied into source code.
+
 Generate the application key privately with `php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"`. Enable Google 2-Step Verification and create a [Google App Password](https://support.google.com/accounts/answer/185833) for SMTP. Never use public/browser environment-variable prefixes for secrets.
 
 Migration and administrator CLI tools run from the source checkout with the selected database variables set in the PHP process. The deployment excludes schema/test files, and CLI tools are never exposed as HTTP setup endpoints. Configure local migration TLS with a real local CA path or the PEM environment variable; a container-only path will not exist on Windows.
@@ -66,8 +68,12 @@ Migration and administrator CLI tools run from the source checkout with the sele
 php tests/algorithms.php
 node tests/integration.mjs --vercel
 node tests/deployment.mjs --vercel
+php tests/configuration.php
+node tests/live.mjs https://midnightbrawl.vercel.app/
 ```
 
 The integration suite uses shared MySQL sessions. Deployment tests use a PHP adapter that evaluates the checked-in `vercel.json` route table and exercise two independent servers, server restart, logout and strict session IDs. They create and remove only their own isolated `tfv1_test_*` database.
 
 The Vercel-hosted runtime build and live URL still need to pass the release checks; a successful local route test alone does not prove the remote domain was updated. This guide does not claim the remote deployment has succeeded until the live URL checks pass.
+
+The live smoke check is read-only and requires the data API to succeed, as well as HTML, runtime health and assets. A green hosting build alone is not sufficient to consider the portal ready.
