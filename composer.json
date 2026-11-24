@@ -12,5 +12,5 @@
     "phpmailer/phpmailer": "^7.0"
   },
   "config": {"allow-plugins": {}, "sort-packages": true},
-  "scripts": {"vercel": ["@php deploy/check-runtime.php"]}
+  "scripts": {"vercel": ["@php deploy/check-runtime.php", "@php deploy/prepare-production.php"]}
 }

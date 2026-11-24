@@ -9,8 +9,10 @@ runtime
 vendor
 node_modules
 tests
-database
+# Required by the explicitly enabled private production build migration.
+# Vercel's route allowlist keeps these files inaccessible over HTTP.
 *.sql
+!database/schema.sql
 *.pem
 *.key
 *.p12

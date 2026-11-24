@@ -55,7 +55,15 @@ The existing Vercel project's complete legacy set `HOST`, `DB_NAME`, `USER`, and
 
 Generate the application key privately with `php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"`. Enable Google 2-Step Verification and create a [Google App Password](https://support.google.com/accounts/answer/185833) for SMTP. Never use public/browser environment-variable prefixes for secrets.
 
-Migration and administrator CLI tools run from the source checkout with the selected database variables set in the PHP process. The deployment excludes schema/test files, and CLI tools are never exposed as HTTP setup endpoints. They use the same production TLS behavior. If opting into CA verification, use a real local CA path or the PEM environment variable; a container-only path will not exist on Windows.
+Migration and administrator CLI tools run from the source checkout with the selected database variables set in the PHP process. The deployment bundles the schema for private build preparation and excludes tests and SQL exports. The route allowlist prevents HTTP access to schema and CLI tools. They use the same production TLS behavior. If opting into CA verification, use a real local CA path or the PEM environment variable; a container-only path will not exist on Windows.
+
+### Explicit hosted schema preparation
+
+When credentials are marked sensitive in Vercel, a private PHP build can perform the migration without exporting those credentials. `composer run vercel` invokes `deploy/prepare-production.php`; it does nothing unless `TF_PREPARE_PRODUCTION=1` is explicitly set in that deployment's environment.
+
+The enabled step takes the schema migration lock, copies existing application tables into timestamped `tfbackup_*` tables in the same hosted database, applies the additive schema migration, and verifies existing application records before creating the requested `tfv1admin` account. It never overwrites an existing username/email or password. Session/rate-limit records are backed up but excluded from equality checks because live requests refresh them. No HTTP maintenance route is added. Remove the temporary flag after the repair build succeeds, then verify the public API, registration validation, admin login/logout and private-source denials. Backups contain private account/application data and should remain in the database under the same access controls.
+
+Run `node tests/production-preparation.mjs` to verify the opt-in behavior, missing-table repair, backups and preservation of changed admin passwords against an isolated test database.
 
 ## Release checks
 
