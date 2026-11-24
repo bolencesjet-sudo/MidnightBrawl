@@ -21,6 +21,12 @@ Follow [DEPLOYMENT.md](DEPLOYMENT.md). `vercel.json` declares an executable PHP 
 
 ## Run a tournament
 
+### Player password recovery
+
+Choose **Forgot password?** in **Player sign in**, enter your registered email, and use the emailed temporary password within 15 minutes. It works once and opens **Change password** after sign-in. You can also open **Change password** from Event settings or your account menu. Enter the temporary password as your current password and choose a new passphrase (15 characters minimum, 72 bytes maximum). Recovery requests preserve your existing password until you save a new one. Changing the password signs out other sessions. Organizer accounts continue using the separate **Organizer sign in** form.
+
+Before deploying this feature, run `php migrate.php` against the hosted database to add `password_resets`; existing records are preserved. Recovery uses the same SMTP settings as registration. Verify actual delivery with a player inbox after deployment.
+
 ### Registration example
 
 1. Open the official tournament URL and click **Register** in the upper-right corner.

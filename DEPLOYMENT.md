@@ -69,6 +69,8 @@ For a hosted default-admin display-name change, temporarily set `TF_DEFAULT_ADMI
 
 ## Release checks
 
+For the player password recovery feature, run `php migrate.php` with the hosted database configured before deploying the updated code. This adds the `password_resets` table without changing existing accounts or tournament records. The existing SMTP configuration sends the temporary passwords; no new email credentials are required. After deployment, use **Forgot password?** in **Player sign in** with a verified player inbox, sign in with the emailed temporary password within 15 minutes, and save a new password in settings. Verify that the temporary password cannot be reused and the previous password stops working after the change. The separate organizer entry is labeled **Organizer sign in**.
+
 1. `https://midnightbrawl.vercel.app/` returns HTTP 200 with `Content-Type: text/html` and renders the application. It must contain no `<?php` source or download prompt.
 2. `/health` returns HTTP 200 and `{"status":"ok"}`. This checks the runtime only.
 3. `/api.php` returns JSON containing the event/account state, never PHP source. A 503 indicates missing environment settings, database reachability/TLS or migration issues; inspect private runtime logs.

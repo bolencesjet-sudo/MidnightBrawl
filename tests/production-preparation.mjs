@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 const cwd=new URL('../',import.meta.url);
-const env={...process.env,TF_ENV:'development',VERCEL:'',TF_PREPARE_PRODUCTION:'1',TF_DB_HOST:'127.0.0.1',TF_DB_PORT:'3306',TF_DB_NAME:'tfv1_test_'+randomBytes(6).toString('hex'),TF_DB_USER:'root',TF_DB_PASSWORD:''};
+const env={...process.env,TF_ENV:'development',VERCEL:'',TF_PREPARE_PRODUCTION:'1',TF_DB_HOST:'127.0.0.1',TF_DB_PORT:process.env.TF_DB_PORT||'3306',TF_DB_NAME:'tfv1_test_'+randomBytes(6).toString('hex'),TF_DB_USER:'root',TF_DB_PASSWORD:''};
 function php(args,overrides={}){const result=spawnSync('php',args,{cwd,env:{...env,...overrides},encoding:'utf8'});assert.equal(result.status,0,result.stderr);return result.stdout}
 try{
  php(['install.php']);

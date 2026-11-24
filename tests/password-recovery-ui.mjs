@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+
+// Exercise the real modal templates and mutation handoff without a browser dependency.
+const source=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8');
+const content={innerHTML:''},dialog={showModal(){},close(){}};
+const context=vm.createContext({
+ document:{querySelector:selector=>selector==='#modal-content'?content:dialog,querySelectorAll:()=>[]},
+ localStorage:{getItem:()=>null},Response,AbortController,setTimeout,clearTimeout,
+});
+vm.runInContext(source.slice(0,source.indexOf("document.addEventListener('click'")),context);
+vm.runInContext("authModal('login')",context);
+assert.match(content.innerHTML,/data-action="forgot-password"/);
+vm.runInContext("authModal('admin_login')",context);
+assert.match(content.innerHTML,/Organizer sign in/);
+assert.doesNotMatch(content.innerHTML,/data-action="forgot-password"/);
+vm.runInContext("authModal('signup')",context);
+assert.match(content.innerHTML,/data-submit="signup"/);
+assert.doesNotMatch(content.innerHTML,/data-action="forgot-password"/);
+vm.runInContext("render=()=>{};toast=()=>{};state={csrf:'test-csrf',events:[]}",context);
+context.fetch=async(url,options)=>{
+ assert.equal(options.headers['X-CSRF-Token'],'test-csrf');
+ const request=JSON.parse(options.body);
+ assert.equal(request.action,'forgot_password');
+ assert.equal(request.email,'player@example.test');
+ return new Response(JSON.stringify({state:{csrf:'test-csrf',events:[],user:null}}));
+};
+assert.equal(await vm.runInContext("mutate('forgot_password',{email:'player@example.test'})",context),true);
+assert.match(content.innerHTML,/Check your inbox and spam folder/);
+assert.match(content.innerHTML,/data-action="login"/);
+context.fetch=async()=>new Response(JSON.stringify({state:{csrf:'test-csrf',events:[],user:{id:1},passwordChangeRequired:true}}));
+assert.equal(await vm.runInContext("mutate('login',{email:'player@example.test',password:'temporary'})",context),true);
+assert.match(content.innerHTML,/data-submit="change_password"/);
+for(const name of ['current_password','new_password','confirm_password'])assert.match(content.innerHTML,new RegExp(`name="${name}"`));
+assert.match(readFileSync(new URL('../index.php',import.meta.url),'utf8'),/>Organizer sign in</);
+console.log('PASS: player recovery entry, separate organizer sign-in, signup, email confirmation, CSRF submission and temporary-login password-change handoff.');

@@ -38,7 +38,7 @@ function state(PDO $db, ?array $u): array {
         $e['requests']=$u ? rows($db,'SELECT r.*,p.display_name,t.name AS team_name FROM join_requests r JOIN players p ON p.id=r.player_id JOIN teams t ON t.id=r.team_id LEFT JOIN players c ON c.id=t.captain_id WHERE t.event_id=? AND (?=\'organizer\' OR p.user_id=? OR c.user_id=?)',[$e['id'],$u['role'],$u['id'],$u['id']]):[];
         $e['audit']=rows($db,'SELECT a.id,a.action,a.created_at,COALESCE(u.name,\'System\') AS actor FROM audit_log a LEFT JOIN users u ON u.id=a.user_id WHERE a.event_id=? ORDER BY a.id DESC LIMIT 50',[$e['id']]);
     } unset($e);
-    return ['user'=>$u,'csrf'=>$_SESSION['csrf'],'verificationRequired'=>isset($_SESSION['pending_uid']),'needsSetup'=>setupAllowed() && (int)query($db,'SELECT COUNT(*) FROM users')->fetchColumn()===0,'events'=>$events,'users'=>$u && $u['role']==='organizer'?rows($db,'SELECT id,name,email,username,role,disabled_at,email_verified_at FROM users ORDER BY id'):[]];
+    return ['user'=>$u,'csrf'=>$_SESSION['csrf'],'verificationRequired'=>isset($_SESSION['pending_uid']),'passwordChangeRequired'=>(bool)($u && isset($_SESSION['recovery_password_hash'])),'needsSetup'=>setupAllowed() && (int)query($db,'SELECT COUNT(*) FROM users')->fetchColumn()===0,'events'=>$events,'users'=>$u && $u['role']==='organizer'?rows($db,'SELECT id,name,email,username,role,disabled_at,email_verified_at FROM users ORDER BY id'):[]];
 }
 try {
     $databaseStage='configuration';
@@ -71,10 +71,20 @@ try {
         rateLimit($db,$action,(string)($_SESSION['pending_uid']??$ip),$action==='verify_email'?5:1,$action==='verify_email'?600:60,$action==='resend_verification');
     }
     if ($u && in_array($action,['set_role','set_disabled','delete_event'],true)) rateLimit($db,'admin-confirm',(string)$u['id'],10,900);
+    if ($action==='forgot_password') {
+        $email=strtolower(field($d,'email',190));
+        demand((bool)filter_var($email,FILTER_VALIDATE_EMAIL),'Enter a valid email address.');
+        rateLimit($db,'recovery-ip',$ip,10,900);
+        rateLimit($db,'recovery-email',$email,1,60,true);
+    }
+    if ($u && $action==='change_password') rateLimit($db,'password-change',(string)$u['id'],10,900);
     // Serialize mutations, including first-organizer creation and roster membership checks.
     demand((int)query($db,"SELECT GET_LOCK('tfv1_mutation',10)")->fetchColumn()===1,'The system is busy. Please try again.',503);
     $db->beginTransaction();
-    if (in_array($action,['setup','signup','login','admin_login','logout','verify_email','resend_verification'],true)) {
+    if ($action==='forgot_password') {
+        $account=one($db,"SELECT id,email FROM users WHERE email=? AND role<>'organizer' AND disabled_at IS NULL AND email_verified_at IS NOT NULL",[$email]);
+        if ($account) sendTemporaryPassword($db,(int)$account['id'],$account['email']);
+    } elseif (in_array($action,['setup','signup','login','admin_login','logout','verify_email','resend_verification'],true)) {
         if ($action==='logout') { $_SESSION=[]; session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(32)); }
         elseif ($action==='verify_email' || $action==='resend_verification') {
             $account=one($db,'SELECT * FROM users WHERE id=? AND disabled_at IS NULL AND email_verified_at IS NULL',[$_SESSION['pending_uid']??0]);
@@ -91,9 +101,22 @@ try {
             $identifier=strtolower(field($d,$action==='admin_login'?'username':'email',190));
             $account=one($db,$action==='admin_login'?'SELECT * FROM users WHERE username=? OR email=?':'SELECT * FROM users WHERE email=?',$action==='admin_login'?[$identifier,$identifier]:[$identifier]);
             $valid=password_verify(passwordValue($d),$account['password_hash']??'$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.');
+            $recovery=null;
+            if (!$valid && $account && $action==='login' && $account['role']!=='organizer' && !$account['disabled_at'] && $account['email_verified_at']) {
+                $recovery=one($db,'SELECT password_hash FROM password_resets WHERE user_id=? AND expires_at>NOW()',[$account['id']]);
+                $valid=$recovery && password_verify(passwordValue($d),$recovery['password_hash']);
+            }
             demand($account && $valid && !$account['disabled_at'] && (($action==='admin_login')===($account['role']==='organizer')),'Account or password is incorrect. Use the appropriate sign-in form.',401);
             if (!$account['email_verified_at']) { $_SESSION=[]; session_regenerate_id(true); $_SESSION['pending_uid']=(int)$account['id']; $_SESSION['pending_admin']=$action==='admin_login'; $_SESSION['csrf']=bin2hex(random_bytes(32)); }
-            else { if (password_needs_rehash($account['password_hash'],PASSWORD_DEFAULT)) query($db,'UPDATE users SET password_hash=? WHERE id=?',[password_hash((string)$d['password'],PASSWORD_DEFAULT),$account['id']]); signIn((int)$account['id'],$action==='admin_login',(int)$account['auth_version']); }
+            else {
+                if ($recovery) {
+                    query($db,'DELETE FROM password_resets WHERE user_id=?',[$account['id']]);
+                    query($db,'UPDATE users SET auth_version=auth_version+1 WHERE id=?',[$account['id']]);
+                    $account['auth_version']++;
+                } elseif (password_needs_rehash($account['password_hash'],PASSWORD_DEFAULT)) query($db,'UPDATE users SET password_hash=? WHERE id=?',[password_hash((string)$d['password'],PASSWORD_DEFAULT),$account['id']]);
+                signIn((int)$account['id'],$action==='admin_login',(int)$account['auth_version']);
+                if ($recovery) $_SESSION['recovery_password_hash']=$recovery['password_hash'];
+            }
         } else {
             $empty=(int)query($db,'SELECT COUNT(*) FROM users')->fetchColumn()===0;
             demand($action!=='setup'||($empty && setupAllowed()),'Public organizer setup is disabled. Create an admin with php admin.php.',403); demand($action!=='signup'||!$empty,'The administrator must finish setup first.');
@@ -107,7 +130,18 @@ try {
         }
     } else {
         demand((bool)$u,'Sign in to continue.',401);
-        if ($action==='create_event') {
+        if ($action==='change_password') {
+            $account=one($db,'SELECT password_hash,auth_version FROM users WHERE id=?',[$u['id']]);
+            $current=passwordValue($d,'current_password');
+            demand(password_verify($current,$_SESSION['recovery_password_hash']??$account['password_hash']),'Current password is incorrect.',403);
+            $password=passwordValue($d,'new_password'); strongPassword($password);
+            demand($password===passwordValue($d,'confirm_password'),'New passwords must match.');
+            demand($password!==$current && !password_verify($password,$account['password_hash']),'Choose a different new password.');
+            query($db,'UPDATE users SET password_hash=?,auth_version=auth_version+1 WHERE id=?',[password_hash($password,PASSWORD_DEFAULT),$u['id']]);
+            query($db,'DELETE FROM password_resets WHERE user_id=?',[$u['id']]);
+            signIn((int)$u['id'],$u['role']==='organizer',(int)$account['auth_version']+1);
+            audit($db,null,(int)$u['id'],'Changed account password and revoked previous sessions.');
+        } elseif ($action==='create_event') {
             admin($u); $roles=array_values(array_unique(array_filter(array_map('trim',explode(',',field($d,'roles',500))))));
             demand(count($roles)>0 && count($roles)<=20 && max(array_map('mb_strlen',$roles))<=60,'Enter 1–20 roles, up to 60 characters each.');
             demand(in_array($d['formation']??'', ['captain','free','random'],true),'Choose a team formation mode.'); demand(in_array($d['format']??'', ['single','double'],true),'Choose a tournament format.');
