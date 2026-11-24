@@ -1,5 +1,6 @@
 'use strict';
 const icons={
+ admin:'<path d="m12 3 7 3v5c0 5-7 10-7 10S5 16 5 11V6z"/><rect x="9" y="10" width="6" height="5" rx="1"/><path d="M10 10V8a2 2 0 0 1 4 0v2"/>',
  grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m20 0v-2a4 4 0 0 0-3-3.87M15 3.13a4 4 0 0 1 0 7.75"/><circle cx="9" cy="7" r="4"/>',
  shield:'<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
@@ -47,7 +48,8 @@ function hydrateIcons(){document.querySelectorAll('[data-icon]').forEach(el=>el.
 function toast(message){$('#toast').textContent=message;$('#toast').classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').classList.remove('show'),4200)}
 function renderAccount(){
  const user=state?.user;
- $('#account').innerHTML=user?`<button class="account-button" data-action="account"><span class="avatar">${esc(initials(user.name))}</span><span>${esc(user.name)}<small>${esc(user.role)}</small></span></button>`:`<div class="account-actions">${state?.needsSetup?btn('Set up organizer','setup','','small'):btn('Sign in','login','','small')}${btn('Register','signup','','small primary')}${btn('Admin sign in','admin_login','','small ghost')}</div>`;
+ $('#account').innerHTML=user?`<button class="account-button" data-action="account"><span class="avatar">${esc(initials(user.name))}</span><span>${esc(user.name)}<small>${esc(user.role)}</small></span></button>`:`<div class="account-actions">${state?.needsSetup?btn('Set up organizer','setup','','small'):btn('Sign in','login','','small')}${btn('Register','signup','','small primary')}</div>`;
+ const adminSignIn=$('#admin-signin');if(adminSignIn)adminSignIn.hidden=!!user;
 }
 async function apiResponse(response){
  let data;

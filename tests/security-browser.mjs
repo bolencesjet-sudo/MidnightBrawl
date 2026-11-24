@@ -25,7 +25,7 @@ try{
  for(let i=0;i<80;i++){if(await evaluate('!!document.querySelector(".account-actions")&&!!document.querySelector("[data-action=reload]")'))break;await new Promise(r=>setTimeout(r,100))}
  check(await evaluate('!!document.querySelector("#account [data-action=login]")'),'Sign-in must remain visible when the API fails.');
  check(await evaluate('!!document.querySelector("#account [data-action=signup]")'),'Registration must remain visible when the API fails.');
- check(await evaluate('!!document.querySelector("#account [data-action=admin_login]")'),'Admin sign-in must remain visible when the API fails.');
+ check(await evaluate('!!document.querySelector(".sidebar-bottom [data-action=admin_login]")'),'Footer admin sign-in must remain available when the API fails.');
  await evaluate('document.querySelector("#account [data-action=login]").click()');
  check(await evaluate('!!document.querySelector("form[data-submit=login]")'),'Sign-in form must open during a service outage.');
  await evaluate('document.querySelector("input[name=email]").value="fixture@example.test";document.querySelector("input[name=password]").value="Fixture-passphrase-42";document.querySelector("#dialog-form").requestSubmit()');

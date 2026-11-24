@@ -15,7 +15,7 @@ This checkout now includes explicit `vercel.json` routing and a PHP function at 
 
 The Vercel project Node.js setting and `package.json` both use **22.x**, matching this PHP runtime. Node starts the PHP launcher; changing that setting does not migrate the database or fix a missing database certificate.
 
-Sign in, Register and Admin sign-in are always available in the upper-right account controls, including while event data is unavailable. The forms still require a working backend to authenticate or create accounts. A form opened during an outage obtains a fresh session/CSRF token when service returns before submitting credentials.
+Sign in and Register are available in the upper-right account controls. Admin sign-in is in the sidebar footer below the theme switch, with a compact shield-lock icon. These guest controls remain available while event data is unavailable. The forms still require a working backend to authenticate or create accounts. A form opened during an outage obtains a fresh session/CSRF token when service returns before submitting credentials.
 
 ## Configure the existing Vercel project
 

@@ -21,6 +21,7 @@
     <div class="sidebar-bottom">
       <div class="fair-card"><span class="fair-icon" data-icon="shield"></span><strong>Great fights. Fair play.</strong><p>Skill decides the winner.<br>Respect keeps us together.</p><button class="text-button" data-action="rules">Our fair-play code</button></div>
       <button class="theme-toggle" id="theme-toggle"><span data-icon="sun"></span><span id="theme-label">Switch to light mode</span><span class="toggle-track"><i></i></span></button>
+      <button type="button" class="sidebar-admin-signin" id="admin-signin" data-action="admin_login"><span class="admin-mark" data-icon="admin" aria-hidden="true"></span><span>Admin sign in</span></button>
       <div class="version">TFv1 <span>Built for the love of the game</span></div>
     </div>
   </aside>
