@@ -2,6 +2,30 @@
 declare(strict_types=1);
 if (PHP_SAPI!=='cli') { http_response_code(404); exit; }
 require dirname(__DIR__).'/lib.php';
+$displayName=envValue('TF_DEFAULT_ADMIN_DISPLAY_NAME');
+if ($displayName!=='') {
+    try {
+        validateEnvironment(); $displayName=field(['name'=>$displayName],'name',80); $db=db();
+        demand((int)query($db,"SELECT GET_LOCK('tfv1_mutation',10)")->fetchColumn()===1,'The system is busy.');
+        $db->beginTransaction();
+        $before=one($db,"SELECT * FROM users WHERE username=? AND email=? AND role='organizer' AND disabled_at IS NULL FOR UPDATE",['tfv1admin','tfv1-admin@example.invalid']);
+        demand((bool)$before,'The requested default administrator was not found.');
+        if ($before['name']!==$displayName) {
+            query($db,'UPDATE users SET name=? WHERE id=?',[$displayName,$before['id']]);
+            $after=one($db,'SELECT * FROM users WHERE id=?',[$before['id']]);
+            $expected=$before; $expected['name']=$displayName;
+            demand($after===$expected,'Administrator fields did not match the requested name-only update.');
+            audit($db,null,(int)$before['id'],'Updated default administrator display name through explicit production preparation.');
+        }
+        $db->commit(); echo "Default administrator display name updated; credentials and permissions preserved.\n";
+    } catch (Throwable $error) {
+        if(isset($db)&&$db->inTransaction())$db->rollBack();
+        fwrite(STDERR,"Default administrator display name update failed.\n"); exit(1);
+    } finally {
+        if(isset($db)){try{query($db,"SELECT RELEASE_LOCK('tfv1_mutation')");}catch(Throwable $ignored){}}
+    }
+    exit;
+}
 // Explicit, temporary build flag. Ordinary builds and HTTP requests do nothing.
 if (envValue('TF_PREPARE_PRODUCTION')!=='1') { echo "Production database preparation is disabled.\n"; exit; }
 try {

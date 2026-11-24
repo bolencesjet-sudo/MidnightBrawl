@@ -65,6 +65,8 @@ The enabled step takes the schema migration lock, copies existing application ta
 
 Run `node tests/production-preparation.mjs` to verify the opt-in behavior, missing-table repair, backups and preservation of changed admin passwords against an isolated test database.
 
+For a hosted default-admin display-name change, temporarily set `TF_DEFAULT_ADMIN_DISPLAY_NAME` to the requested name for the production build. The private preparation step updates only the existing default organizer's `name`, verifies its other account fields are unchanged, and records an audit entry. This path does not run schema migration or recreate the account. Remove the temporary variable after the build and verify the name through Admin sign in.
+
 ## Release checks
 
 1. `https://midnightbrawl.vercel.app/` returns HTTP 200 with `Content-Type: text/html` and renders the application. It must contain no `<?php` source or download prompt.

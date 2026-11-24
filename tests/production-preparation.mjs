@@ -11,6 +11,10 @@ try{
  assert.match(php(['deploy/prepare-production.php']),/records verified unchanged/);
  assert.match(php(['-r',`require 'lib.php'; $db=db(); query($db,'SELECT user_id FROM email_verifications LIMIT 0'); $u=one($db,"SELECT * FROM users WHERE username='tfv1admin'"); if(!$u||$u['role']!=='organizer'||!$u['email_verified_at']||!password_verify('TFv1-Admin-2026!',$u['password_hash']))exit(1); echo 'verified';`]),/verified/);
  php(['admin.php','--set-password'],{TF_ADMIN_EMAIL:'tfv1-admin@example.invalid',TF_ADMIN_PASSWORD:'Changed-initial-admin-password-42'});
+ const originalAccount=php(['-r',`require 'lib.php'; echo json_encode(one(db(),"SELECT * FROM users WHERE username='tfv1admin'"));`]);
+ assert.match(php(['deploy/prepare-production.php'],{TF_PREPARE_PRODUCTION:'',TF_DEFAULT_ADMIN_DISPLAY_NAME:'JetVerse_Admin'}),/credentials and permissions preserved/);
+ const renamedAccount=php(['-r',`require 'lib.php'; echo json_encode(one(db(),"SELECT * FROM users WHERE username='tfv1admin'"));`]);
+ assert.deepEqual(JSON.parse(renamedAccount),{...JSON.parse(originalAccount),name:'JetVerse_Admin'},'Rename must change only the display name.');
  assert.match(php(['deploy/prepare-production.php']),/no password overwritten/);
  php(['-r',`require 'lib.php'; $u=one(db(),"SELECT * FROM users WHERE username='tfv1admin'"); if(!password_verify('Changed-initial-admin-password-42',$u['password_hash']))exit(1);`]);
  console.log('PASS: opt-in production preparation repairs missing schema, backs up and verifies existing data, creates a verified admin and preserves changed passwords on repeat.');
