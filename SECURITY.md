@@ -61,11 +61,27 @@ References: [Vercel runtimes](https://vercel.com/docs/functions/runtimes), [Verc
 
 ## Dedicated administrator creation
 
-There are no default admin credentials. Create a new account through the CLI, using an email that is not already registered. Do not make your player account your routine admin account.
+Admin accounts are created explicitly through the private CLI. Do not make your player account your routine admin account.
+
+### Requested default administrator
+
+Run `php admin.php --create-default` against the intended database to create the requested initial account:
+
+- Username: `tfv1admin`
+- Initial password: `TFv1-Admin-2026!`
+- Internal email/reset identifier: `tfv1-admin@example.invalid` (reserved, non-deliverable address; no email is sent).
+
+Use **Admin sign in**. The command inserts a separate, verified organizer with a hashed password and an audit entry. It refuses an existing username/email instead of changing any account. It does not run automatically on page visits, deployment or installation. Existing administrators, players, tournaments and login checks are preserved. These credentials work only after the command reports successful creation; they cannot bypass a database outage. For Vercel, run the CLI privately with that deployment's database and production settings.
+
+To replace the initial password, run `.\setup-admin.ps1 -ResetPassword`, enter `tfv1-admin@example.invalid` as the email, and choose a unique new password. Subsequent attempts to create defaults will still refuse the existing account and preserve its new password.
+
+### Custom administrator
 
 For this workstation, run `.\setup-admin.ps1`. It defaults to username `bolencesjet` and email `bolencesjet@gmail.com`, prompts privately for your chosen password, and restores its temporary environment settings afterward. No admin password has been chosen or saved for you. If that email already belongs to a player, choose a different admin email; if it belongs to an existing organizer, use Admin sign in with that organizer email instead.
 
 **Existing local account:** `bolencesjet@gmail.com` was found to be an organizer. Its username is now `bolencesjet`; its existing password is preserved. Use **Admin sign in** with either identifier. To choose a new password privately, run `.\setup-admin.ps1 -ResetPassword`. This changes only the password of the existing organizer and revokes its prior sessions. The script without `-ResetPassword` is for creating a separate new admin with an unused email.
+
+If reset fails, read the specific PHP error printed above the PowerShell exception. Reset identifies the existing enabled organizer by email; it does not require a new username. Invalid email/password input is rejected before database access. `database_connection` means the configured database is unreachable; run `php deploy/diagnose-database.php` for a read-only check. For local XAMPP, start MySQL first. For the Vercel account, configure this CLI process to use the same hosted database; Vercel environment variables are not automatically available in local PowerShell, and `.env.example` is not loaded. Hosted CLI operations require the supported production PHP version and production environment/TLS settings. `Existing enabled admin not found` means the email is incorrect, the account is disabled/not an organizer, or the CLI is connected to another database. Do not recreate the database to fix a reset failure.
 
 In PowerShell, on the machine connected to the intended database:
 

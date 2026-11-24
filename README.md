@@ -15,6 +15,8 @@ Use a supported PHP release (8.2+ required in production) with `pdo_mysql` and `
 
 ## Deploy on Vercel
 
+To explicitly create the requested default administrator, run `php admin.php --create-default` with the intended database configured. Use **Admin sign in** with username `tfv1admin` and initial password `TFv1-Admin-2026!` only after creation succeeds. Existing accounts are never overwritten. See [SECURITY.md](SECURITY.md#requested-default-administrator) for changing this initial password and hosted-database setup.
+
 Follow [DEPLOYMENT.md](DEPLOYMENT.md). `vercel.json` declares an executable PHP function and explicit routes instead of relying on static file hosting; production sessions use the shared MySQL database. Configure the hosted database and SMTP environment variables and run the additive migration before releasing registration.
 
 ## Run a tournament

@@ -38,9 +38,16 @@ try{
  check(cli.status===0,'CLI must create a separate administrator.');
  const cliAdmin=new Client();await cliAdmin.request();await cliAdmin.act('admin_login',{username:'test-administrator',password:'TFv1-test-password-42'});
  check(cliAdmin.state.user.role==='organizer','CLI administrator must sign in with their username.');
+ const defaultAdmin=spawnSync('php',['admin.php','--create-default'],{cwd:root,env,encoding:'utf8'});
+ check(defaultAdmin.status===0,'Explicit default-admin creation must succeed.');
+ const defaultClient=new Client();await defaultClient.request();await defaultClient.act('admin_login',{username:'tfv1admin',password:'TFv1-Admin-2026!'});
+ check(defaultClient.state.user.role==='organizer','Default admin must use normal authenticated organizer access.');
+ const repeatedDefault=spawnSync('php',['admin.php','--create-default'],{cwd:root,env,encoding:'utf8'});
+ check(repeatedDefault.status!==0,'Repeated bootstrap must never overwrite an existing account.');
+ await defaultClient.act('logout');await defaultClient.act('admin_login',{username:'tfv1admin',password:'TFv1-Admin-2026!'});
  const assigned=spawnSync('php',['admin.php','--assign-username'],{cwd:root,env:{...env,TF_ADMIN_USERNAME:'original-organizer',TF_ADMIN_EMAIL:'organizer@example.test'},encoding:'utf8'});
  check(assigned.status===0,'CLI must assign a username without changing an existing admin password.');
- const resetAdmin=spawnSync('php',['admin.php','--set-password'],{cwd:root,env:{...env,TF_ADMIN_USERNAME:'test-administrator',TF_ADMIN_EMAIL:'cli-admin@example.test',TF_ADMIN_PASSWORD:'Changed-test-passphrase-42'},encoding:'utf8'});
+ const resetAdmin=spawnSync('php',['admin.php','--set-password'],{cwd:root,env:{...env,TF_ADMIN_USERNAME:'',TF_ADMIN_EMAIL:'cli-admin@example.test',TF_ADMIN_PASSWORD:'Changed-test-passphrase-42'},encoding:'utf8'});
  check(resetAdmin.status===0,'CLI password reset must succeed for an existing admin.');
  await cliAdmin.request();check(cliAdmin.state.user===null,'CLI password reset must revoke previous sessions.');
  await cliAdmin.act('admin_login',{username:'test-administrator',password:'Changed-test-passphrase-42'});
