@@ -52,7 +52,7 @@ function renderAccount(){
 async function apiResponse(response){
  let data;
  try{data=await response.json()}catch(error){if(error.name==='AbortError'||error.name==='TypeError')throw error;throw Error('The server returned an invalid response. Please try again shortly.')}
- if(!response.ok)throw Error(typeof data?.error==='string'?data.error:'Unable to connect to the server. Please try again shortly.');
+ if(!response.ok){const reference=data?.database_unavailable&&/^[a-f0-9]{16}$/.test(data?.reference||'')?` Reference: ${data.reference}.`:'';throw Error((typeof data?.error==='string'?data.error:'Unable to connect to the server. Please try again shortly.')+reference)}
  return data;
 }
 async function apiRequest(options={}){

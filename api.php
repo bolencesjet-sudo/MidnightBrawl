@@ -41,10 +41,13 @@ function state(PDO $db, ?array $u): array {
     return ['user'=>$u,'csrf'=>$_SESSION['csrf'],'verificationRequired'=>isset($_SESSION['pending_uid']),'needsSetup'=>setupAllowed() && (int)query($db,'SELECT COUNT(*) FROM users')->fetchColumn()===0,'events'=>$events,'users'=>$u && $u['role']==='organizer'?rows($db,'SELECT id,name,email,username,role,disabled_at,email_verified_at FROM users ORDER BY id'):[]];
 }
 try {
+    $databaseStage='configuration';
     validateEnvironment();
     demand(!production() || secureRequest(),'HTTPS is required.',403);
-    $db=db();
+    $databaseStage='connection'; $db=db();
+    $databaseStage='session';
     startSecureSession();
+    $databaseStage='request';
     $ip=$_SERVER['REMOTE_ADDR']??'unknown';
     if ($_SERVER['REQUEST_METHOD']==='GET') { rateLimit($db,'read',$ip,240,60); $response=state($db,currentUser($db)); session_write_close(); echo json_encode($response); exit; }
     demand($_SERVER['REQUEST_METHOD']==='POST','Method not allowed.',405);
@@ -55,7 +58,7 @@ try {
     $raw=file_get_contents('php://input',false,null,0,16385); demand(strlen($raw)<=16384,'Request is too large.',413);
     try { $d=json_decode($raw,true,16,JSON_THROW_ON_ERROR); } catch (JsonException $e) { demand(false,'Invalid JSON.',400); }
     demand(is_array($d) && str_starts_with(ltrim($raw),'{'),'Expected a JSON object.',400);
-    $action=field($d,'action',40); $u=currentUser($db);
+    $action=field($d,'action',40); $databaseStage='action:'.$action; $u=currentUser($db);
     rateLimit($db,'write',$ip,1800,600);
     if (in_array($action,['setup','signup','login','admin_login'],true)) {
         rateLimit($db,'auth-ip',$ip,60,900);
@@ -232,11 +235,12 @@ try {
     if (isset($db)&&$db->inTransaction()) $db->rollBack();
     $duplicate=$e->getCode()==='23000';
     $schemaRequired=in_array((int)($e->errorInfo[1]??0),[1146,1054],true);
+    $reference=bin2hex(random_bytes(8));
     http_response_code($duplicate?409:503);
-    error_log('TFv1 database: '.$e->getMessage());
+    error_log('TFv1 database ['.$reference.'] stage='.($databaseStage??'unknown').' code='.databaseFailureCode($e).': '.$e->getMessage());
     $message=$duplicate?'That email, game ID, team name, registration or request already exists.':'The service is temporarily unavailable. Contact the administrator.';
     if ($schemaRequired) $message=setupAllowed()?'The database needs an update. Run php migrate.php from the TFv1 folder, then try again. Existing tournament data will be preserved.':'The service needs a database update. Please contact the administrator.';
-    echo json_encode(['error'=>$message,'database_unavailable'=>!$duplicate,'schema_required'=>$schemaRequired]);
+    echo json_encode(['error'=>$message,'database_unavailable'=>!$duplicate,'schema_required'=>$schemaRequired,'code'=>$duplicate?'duplicate_record':databaseFailureCode($e),'reference'=>$reference]);
 } catch (ServiceConfigurationException $e) {
     http_response_code(503);
     error_log('TFv1 configuration: '.$e->getMessage());

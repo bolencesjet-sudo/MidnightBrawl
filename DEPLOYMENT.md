@@ -70,6 +70,21 @@ Migration and administrator CLI tools run from the source checkout with the sele
 
 ## Local verification
 
+### Registration reports service temporarily unavailable
+
+This JSON response comes from the API's database exception handler. A browser refresh cannot repair database credentials, provider suspension or missing schema. If even a fresh `GET /api.php` returns 503, registration is blocked before account creation. Check **Vercel → midnightbrawl → Logs** for the corresponding `TFv1 database` entry. Updated responses include a reference that matches the private log, plus a database error category; connection attempts retry once only for connection/capacity failures. Registration writes and email delivery are never automatically replayed.
+
+Run `php deploy/diagnose-database.php` privately with the same environment variables as the deployed PHP function. It reads schema metadata without creating accounts, changing tables or printing secrets. Running it under default local XAMPP settings checks the local database, not Clever Cloud.
+
+- `database_connection`: restore/start the provider database and verify host, port and network access.
+- `database_busy`: check provider connection limits and active connections.
+- `database_permissions`: correct the hosted credentials or required database-user privileges.
+- `database_name`: use the exact database name issued by the provider.
+- `database_tls`: correct the provider TLS/CA configuration.
+- `database_schema`: run `php migrate.php` privately against the existing hosted database using a migration-capable user. This additive migration preserves tournament data. Do not reinstall/reset the database as a registration workaround.
+
+After correcting the cause and redeploying updated code, run the live registration validation check below, then verify real email delivery with an inbox you control. A successful validation check alone does not prove registration/email delivery works.
+
 ### Registration shows "Failed to fetch"
 
 This browser error means no usable HTTP response arrived. Check the exact URL and browser Network/Console details; the message alone does not distinguish an interrupted connection, blocked request, TLS problem, redirect, or hosting outage. The client retries a failed session read once, limits waiting time, preserves form entries on failure, and never automatically repeats a registration POST because it might already have been processed.

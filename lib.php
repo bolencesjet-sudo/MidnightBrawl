@@ -4,13 +4,33 @@ date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/security.php';
 require_once __DIR__ . '/mail.php';
 
+function databaseFailureCode(PDOException $error): string {
+    $driverCode=(int)($error->errorInfo[1]??0);
+    if (in_array($driverCode,[2002,2003,2006,2013,2055],true)) return 'database_connection';
+    if (in_array($driverCode,[1040,1203,1226],true)) return 'database_busy';
+    if (in_array($driverCode,[1044,1045,1142,1143,1227,1370],true)) return 'database_permissions';
+    if (in_array($driverCode,[1054,1146],true)) return 'database_schema';
+    if ($driverCode===1049) return 'database_name';
+    if ($driverCode===2026) return 'database_tls';
+    return 'database_unavailable';
+}
+function connectDatabase(callable $connect): PDO {
+    // Retry only connection establishment, before any query or transaction.
+    // Registration inserts, email delivery and tournament writes are never replayed.
+    try { return $connect(); }
+    catch (PDOException $error) {
+        if (!in_array(databaseFailureCode($error),['database_connection','database_busy'],true)) throw $error;
+        usleep(250000);
+        return $connect();
+    }
+}
 function db(bool $selectDatabase = true): PDO {
     $c = require __DIR__ . '/config.php';
     if (!preg_match('/^[a-zA-Z0-9_]+$/', $c['database'])) throw new RuntimeException('Invalid database name.');
     if (preg_match('/[;\s\x00-\x1F]/',$c['host']) || !ctype_digit((string)$c['port']) || (int)$c['port']<1 || (int)$c['port']>65535) throw new RuntimeException('Invalid database host or port.');
     $dsn = "mysql:host={$c['host']};port={$c['port']};charset=utf8mb4";
     if ($selectDatabase) $dsn .= ";dbname={$c['database']}";
-    $options=[PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false];
+    $options=[PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false, PDO::ATTR_TIMEOUT => 5];
     $ca=envValue('TF_DB_SSL_CA'); $temporaryCa=null;
     if (envValue('TF_DB_SSL_CA_PEM')!=='') {
         $pem=envValue('TF_DB_SSL_CA_PEM');
@@ -26,7 +46,7 @@ function db(bool $selectDatabase = true): PDO {
         $options[PDO::MYSQL_ATTR_SSL_CIPHER]='DEFAULT';
         $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT]=false;
     }
-    try { $pdo = new PDO($dsn, $c['username'], $c['password'], $options); }
+    try { $pdo = connectDatabase(fn() => new PDO($dsn, $c['username'], $c['password'], $options)); }
     finally { if ($temporaryCa!==null) unlink($temporaryCa); }
     if (production()) {
         $tls=$pdo->query("SHOW SESSION STATUS LIKE 'Ssl_cipher'")->fetch(PDO::FETCH_NUM);

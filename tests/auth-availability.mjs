@@ -13,6 +13,7 @@ vm.runInContext(source.slice(0,source.indexOf('function heading(')),context);
 for(const [status,body,expected] of [
  [503,{error:'The database needs an update. Run php migrate.php.'},'The database needs an update. Run php migrate.php.'],
  [429,{error:'Too many attempts. Please try again later.'},'Too many attempts. Please try again later.'],
+ [503,{error:'The service is temporarily unavailable. Contact the administrator.',database_unavailable:true,reference:'0123456789abcdef'},'The service is temporarily unavailable. Contact the administrator. Reference: 0123456789abcdef.'],
  [502,'<html>Bad gateway</html>','The server returned an invalid response. Please try again shortly.'],
 ]){
  let requests=0;
