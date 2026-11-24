@@ -51,13 +51,34 @@ function renderAccount(){
 }
 async function apiResponse(response){
  let data;
- try{data=await response.json()}catch(error){throw Error('The server returned an invalid response. Please try again shortly.')}
+ try{data=await response.json()}catch(error){if(error.name==='AbortError'||error.name==='TypeError')throw error;throw Error('The server returned an invalid response. Please try again shortly.')}
  if(!response.ok)throw Error(typeof data?.error==='string'?data.error:'Unable to connect to the server. Please try again shortly.');
  return data;
 }
+async function apiRequest(options={}){
+ const writing=options.method==='POST';
+ // Retry only reads: a lost POST response can still mean the change was saved.
+ for(let attempt=0;attempt<(writing?1:2);attempt++){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),writing?55000:15000);
+  try{
+   const response=await fetch('api.php',{...options,credentials:'same-origin',cache:'no-store',redirect:'error',signal:controller.signal});
+   return await apiResponse(response);
+  }catch(error){
+   const connectionError=error.name==='AbortError'||error.name==='TypeError';
+   if(!connectionError)throw error;
+   if(!writing&&attempt===0)continue;
+   const failure=Error(writing
+    ?'The connection was interrupted, so we could not confirm your submission. Check your connection. If registering, try signing in with the same email before creating another account.'
+    :'Unable to reach the tournament server. Check your internet connection and open the official website, then try again.');
+   failure.connectionFailure=true;
+   throw failure;
+  }finally{clearTimeout(timer)}
+ }
+}
 async function load(){
  renderAccount();
- try{const response=await fetch('api.php',{cache:'no-store'});state=await apiResponse(response);render();if(state.verificationRequired)verificationModal()}
+ try{state=await apiRequest();render();if(state.verificationRequired)verificationModal()}
  catch(error){if(!['localhost','127.0.0.1','::1','[::1]'].includes(location.hostname)){$('#main').innerHTML=heading('The arena is temporarily unavailable.','Please try again shortly. If this continues, contact the organizer.')+'<section class="panel"><div class="panel-body">'+btn('Try again','reload','bolt','primary')+'</div></section>';hydrateIcons();return;}$('#main').innerHTML=`<div class="page-heading"><div><div class="eyebrow">TFv1 / LOCAL SETUP</div><h1>Let’s connect your arena.</h1></div></div><div class="panel"><div class="panel-body">${notice(esc(error.message),true)}<h2 style="font-size:18px;margin-bottom:15px">MySQL setup</h2><ol class="rules-list"><li>Start <strong>Apache</strong> and <strong>MySQL</strong> in the XAMPP Control Panel.</li><li>Check the connection settings in <strong>config.php</strong>.</li><li>In the TFv1 folder, run <strong>php install.php</strong> to create the MySQL database and sample tournament.</li><li>Reload this page and select <strong>Set up organizer</strong>.</li></ol>${btn('Try connection again','reload','bolt','primary')}</div></div>`;hydrateIcons()}
 }
 async function mutate(action,data={},message='Saved successfully.'){
@@ -65,15 +86,13 @@ async function mutate(action,data={},message='Saved successfully.'){
  document.querySelectorAll('#modal button[type=submit]').forEach(b=>b.disabled=true);
  try{
   if(!state?.csrf){
-   const sessionResponse=await fetch('api.php',{cache:'no-store'});
-   state=await apiResponse(sessionResponse);
+   state=await apiRequest();
    if(typeof state.csrf!=='string')throw Error('Please reload the page before signing in.');
   }
-  const response=await fetch('api.php',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({action,event_id:event()?.id,...data})});
-  const result=await apiResponse(response);
+  const result=await apiRequest({method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({action,event_id:event()?.id,...data})});
   state=result.state;if(action==='create_event'&&result.created_event_id){activeEvent=Number(result.created_event_id);roundFilter='all';statusFilter='all'}
   $('#modal').close();render();toast(message);if(state.verificationRequired)verificationModal();return true;
- }catch(error){const target=$('#modal[open] .form-error');if(target){target.textContent=error.message;target.classList.add('show')}else toast(error.message);return false}
+ }catch(error){if(error.connectionFailure&&state)state.csrf=null;const target=$('#modal[open] .form-error');if(target){target.textContent=error.message;target.classList.add('show')}else toast(error.message);return false}
  finally{busy=false;document.querySelectorAll('#modal button[type=submit]').forEach(b=>b.disabled=false)}
 }
 function heading(title,subtitle,action=''){return `<div class="page-heading"><div><div class="eyebrow">YOUR ARENA. YOUR COMPETITION.</div><h1>${title}</h1><p>${subtitle}</p></div>${action}</div>`}

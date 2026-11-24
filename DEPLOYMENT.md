@@ -70,6 +70,20 @@ Migration and administrator CLI tools run from the source checkout with the sele
 
 ## Local verification
 
+### Registration shows "Failed to fetch"
+
+This browser error means no usable HTTP response arrived. Check the exact URL and browser Network/Console details; the message alone does not distinguish an interrupted connection, blocked request, TLS problem, redirect, or hosting outage. The client retries a failed session read once, limits waiting time, preserves form entries on failure, and never automatically repeats a registration POST because it might already have been processed.
+
+1. Open the official HTTPS website directly. Confirm `TF_APP_URL` matches its origin in the PHP hosting environment. Avoid submitting from an old deployment URL or a saved local HTML file.
+2. Run `node tests/live.mjs https://midnightbrawl.vercel.app/` to check HTML, assets, runtime and API availability. Substitute the actual official URL when different.
+3. Run `node tests/live-registration.mjs https://midnightbrawl.vercel.app/` to check the registration POST with a session cookie, Origin and CSRF token. This submits blank, invalid registration input; it creates no account and sends no email. It consumes normal request/rate-limit counters. A 422 email-validation response is expected. A 403 points to session/origin configuration; a 503 requires checking the private server logs/configuration.
+4. If both checks pass but a browser fails, inspect the failed `api.php` request in that browser's Network tab for a blocked connection, redirect or certificate error. Compare with a private window or another connection to isolate browser/network interference. Keep cookies enabled for the site.
+5. If a submission loses its response, try signing in with the same email before creating another account. An existing unverified account can continue email verification through sign-in. Real SMTP delivery still requires a successful registration with an inbox you control.
+
+Deploy the updated `assets/app.js` with the application and refresh the browser before retesting. Never use permissive CORS, `no-cors`, or disabled email verification as a network-error workaround.
+
+### Test commands
+
 ```powershell
 php tests/algorithms.php
 node tests/integration.mjs --vercel
