@@ -23,6 +23,10 @@ Follow [DEPLOYMENT.md](DEPLOYMENT.md). `vercel.json` declares an executable PHP 
 
 ### Player password recovery
 
+All player, referee and organizer password sign-ins now require a six-digit email code before account access is granted. Codes expire after 10 minutes, work once, and allow at most five incorrect attempts. Use **Send another code** after one minute if needed. Registration still verifies the new account's email before signing in. Password recovery still works and also requires a sign-in code after the temporary password.
+
+Organizers can open their account menu or Event settings and choose **Change email**. Confirm the account password, then enter the code sent to the new address. The existing address stays active until verification succeeds; future sign-in codes go to the new verified address, and other sessions are signed out. Email changes preserve the account's password, username, permissions and tournament data.
+
 Choose **Forgot password?** in **Player sign in**, enter your registered email, and use the emailed temporary password within 15 minutes. It works once and opens **Change password** after sign-in. You can also open **Change password** from Event settings or your account menu. Enter the temporary password as your current password and choose a new passphrase (15 characters minimum, 72 bytes maximum). Recovery requests preserve your existing password until you save a new one. Changing the password signs out other sessions. Organizer accounts continue using the separate **Organizer sign in** form.
 
 Before deploying this feature, run `php migrate.php` against the hosted database to add `password_resets`; existing records are preserved. Recovery uses the same SMTP settings as registration. Verify actual delivery with a player inbox after deployment.

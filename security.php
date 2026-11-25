@@ -104,3 +104,9 @@ function reauthenticate(PDO $db, array $u, array $data): void {
     $hash=query($db,'SELECT password_hash FROM users WHERE id=?',[$u['id']])->fetchColumn();
     demand(password_verify(passwordValue($data,'admin_password'),$hash), 'Confirm your admin password to continue.',403);
 }
+function verifyAccountCode(array &$challenge, array $data): void {
+    demand(($challenge['expires']??0)>time() && ($challenge['attempts']??5)<5,'Code expired or too many attempts. Start again to request a new code.');
+    $challenge['attempts']++;
+    $code=field($data,'code',6);
+    demand((bool)preg_match('/^[0-9]{6}$/',$code) && hash_equals($challenge['code_hash'],hash_hmac('sha256',$code,envValue('TF_APP_KEY'))),'Invalid or expired verification code.');
+}

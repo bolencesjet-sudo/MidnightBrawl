@@ -2,13 +2,17 @@
 declare(strict_types=1);
 if (PHP_SAPI!=='cli') { http_response_code(404); exit; }
 require dirname(__DIR__).'/lib.php';
+if (envValue('TF_DEFAULT_ADMIN_EMAIL')!=='') {
+    require __DIR__.'/update-organizer-email.php';
+    exit;
+}
 $displayName=envValue('TF_DEFAULT_ADMIN_DISPLAY_NAME');
 if ($displayName!=='') {
     try {
         validateEnvironment(); $displayName=field(['name'=>$displayName],'name',80); $db=db();
         demand((int)query($db,"SELECT GET_LOCK('tfv1_mutation',10)")->fetchColumn()===1,'The system is busy.');
         $db->beginTransaction();
-        $before=one($db,"SELECT * FROM users WHERE username=? AND email=? AND role='organizer' AND disabled_at IS NULL FOR UPDATE",['tfv1admin','tfv1-admin@example.invalid']);
+        $before=one($db,"SELECT * FROM users WHERE username=? AND role='organizer' AND disabled_at IS NULL FOR UPDATE",['tfv1admin']);
         demand((bool)$before,'The requested default administrator was not found.');
         if ($before['name']!==$displayName) {
             query($db,'UPDATE users SET name=? WHERE id=?',[$displayName,$before['id']]);

@@ -3,14 +3,16 @@ import {randomBytes} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import {startTestSMTP} from './smtp.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const env={...process.env,TF_ENV:'development',VERCEL:'',TF_DB_NAME:'tfv1_test_'+randomBytes(6).toString('hex'),TF_SESSION_STORE:'database',TF_ADMIN_USERNAME:'deploy-admin',TF_ADMIN_EMAIL:'deploy@example.test',TF_ADMIN_PASSWORD:'Deployment-test-passphrase-42'};
+const smtp=await startTestSMTP(root);
+const env={...process.env,...smtp.env,TF_ENV:'development',VERCEL:'',TF_DB_NAME:'tfv1_test_'+randomBytes(6).toString('hex'),TF_SESSION_STORE:'database',TF_ADMIN_USERNAME:'deploy-admin',TF_ADMIN_EMAIL:'deploy@example.test',TF_ADMIN_PASSWORD:'Deployment-test-passphrase-42'};
 const ports=[21000+Math.floor(Math.random()*1000),23000+Math.floor(Math.random()*1000)];
 const servers=[];let checks=0;
 const adapter=process.argv.includes('--vercel')?'tests/vercel-router.php':'tests/container-router.php';
 const check=(value,message)=>{assert.ok(value,message);checks++};
 async function start(port){
- const p=spawn('php',['-S',`127.0.0.1:${port}`,'-t',root,adapter],{cwd:root,env,stdio:'ignore'});servers.push(p);
+ const p=spawn('php',['-d',`openssl.cafile="${smtp.ca}"`,'-S',`127.0.0.1:${port}`,'-t',root,adapter],{cwd:root,env,stdio:'ignore'});servers.push(p);
  for(let i=0;i<80;i++){try{const r=await fetch(`http://127.0.0.1:${port}/health`);await r.text();if(r.ok)return p}catch{}await new Promise(r=>setTimeout(r,50))}
  throw Error('Test server did not start.');
 }
@@ -32,7 +34,9 @@ try{
  for(const suffix of ['/assets/style.css','/assets/app.js','/assets/theme.js','/assets/logo.svg']){const res=await fetch(bases[0]+suffix);await res.text();check(res.status===200,`${suffix} must load.`)}
  let response=await fetch(bases[0]+'/api.php'),state=await response.json();let cookie=response.headers.getSetCookie().find(c=>c.startsWith('PHPSESSID=')).split(';')[0];
  response=await fetch(bases[0]+'/api.php',{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({action:'admin_login',username:env.TF_ADMIN_USERNAME,password:env.TF_ADMIN_PASSWORD})});
- state=(await response.json()).state;cookie=response.headers.getSetCookie().find(c=>c.startsWith('PHPSESSID=')).split(';')[0];check(state.user.role==='organizer','Admin must sign in.');
+ state=(await response.json()).state;cookie=response.headers.getSetCookie().find(c=>c.startsWith('PHPSESSID=')).split(';')[0];check(!state.user&&state.loginVerificationRequired,'Admin password must require an email code.');
+ response=await fetch(bases[1]+'/api.php',{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({action:'verify_login',code:smtp.code(env.TF_ADMIN_EMAIL)})});
+ state=(await response.json()).state;cookie=response.headers.getSetCookie().find(c=>c.startsWith('PHPSESSID=')).split(';')[0];check(state.user.role==='organizer','Email code must finish sign-in across instances.');
  response=await fetch(bases[1]+'/api.php',{headers:{Cookie:cookie}});let second=await response.json();check(second.user?.role==='organizer'&&second.csrf===state.csrf,'Session and CSRF must be shared across instances.');
  await stop(first);first=await start(ports[0]);
  response=await fetch(bases[0]+'/api.php',{headers:{Cookie:cookie}});state=await response.json();check(state.user?.role==='organizer','Login must survive a server restart.');
@@ -42,5 +46,6 @@ try{
  console.log(`PASS: ${checks} deployment assertions (${adapter}) — rendered HTML, private-source denials, assets, shared login/CSRF, restart persistence, logout and session fixation protection.`);
 }finally{
  for(const p of servers)await stop(p);
+ await smtp.close();
  const r=spawnSync('php',['tests/database.php','drop'],{cwd:root,env,encoding:'utf8'});assert.equal(r.status,0,r.stderr);console.log(r.stdout.trim());
 }

@@ -23,6 +23,13 @@ function sendTemporaryPassword(PDO $db, int $uid, string $email): void {
     query($db,'INSERT INTO password_resets(user_id,password_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(), INTERVAL 15 MINUTE)) ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash),expires_at=VALUES(expires_at)',[$uid,password_hash($password,PASSWORD_DEFAULT)]);
     sendAccountEmail($email,'Your TFv1 temporary password',"Your temporary password is: $password\n\nUse Player sign in with this email and temporary password within 15 minutes. It can be used once. Then open settings or your account menu and choose Change password. Enter this temporary password as your current password.\n\nYour existing password remains valid until you choose a new password. If you did not request this, ignore this email.");
 }
+function sendAccountCode(string $email, string $purpose): array {
+    $key=envValue('TF_APP_KEY');
+    demand(strlen($key)>=32,'Email verification is not configured. Contact the organizer.',503);
+    $code=(string)random_int(100000,999999);
+    sendAccountEmail($email,'Your TFv1 '.$purpose.' code',"Your $purpose code is: $code\n\nIt expires in 10 minutes and can be used once. If you did not request this, ignore this email.");
+    return ['code_hash'=>hash_hmac('sha256',$code,$key),'expires'=>time()+600,'attempts'=>0];
+}
 function sendAccountEmail(string $email, string $subject, string $body): void {
     require_once __DIR__.'/vendor/autoload.php';
     $c=smtpConfig();

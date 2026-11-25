@@ -69,6 +69,8 @@ For a hosted default-admin display-name change, temporarily set `TF_DEFAULT_ADMI
 
 ## Release checks
 
+Email-code sign-in uses the existing database session store and SMTP configuration; no additional table is required. The explicitly requested first update of the default organizer's inbox can be applied privately by setting `TF_DEFAULT_ADMIN_EMAIL` for one production build. The preparation step backs up accounts and updates only the existing `tfv1admin` organizer's email, verification timestamp and session version, preserving its password and permissions. It refuses addresses belonging to another account. Remove this temporary flag after a successful build. Subsequent organizer email changes use the verified **Change email** account flow. Never disable sign-in verification to work around an unreachable inbox; use an authorized private account update.
+
 For the player password recovery feature, run `php migrate.php` with the hosted database configured before deploying the updated code. This adds the `password_resets` table without changing existing accounts or tournament records. The existing SMTP configuration sends the temporary passwords; no new email credentials are required. After deployment, use **Forgot password?** in **Player sign in** with a verified player inbox, sign in with the emailed temporary password within 15 minutes, and save a new password in settings. Verify that the temporary password cannot be reused and the previous password stops working after the change. The separate organizer entry is labeled **Organizer sign in**.
 
 1. `https://midnightbrawl.vercel.app/` returns HTTP 200 with `Content-Type: text/html` and renders the application. It must contain no `<?php` source or download prompt.

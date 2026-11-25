@@ -38,7 +38,7 @@ function state(PDO $db, ?array $u): array {
         $e['requests']=$u ? rows($db,'SELECT r.*,p.display_name,t.name AS team_name FROM join_requests r JOIN players p ON p.id=r.player_id JOIN teams t ON t.id=r.team_id LEFT JOIN players c ON c.id=t.captain_id WHERE t.event_id=? AND (?=\'organizer\' OR p.user_id=? OR c.user_id=?)',[$e['id'],$u['role'],$u['id'],$u['id']]):[];
         $e['audit']=rows($db,'SELECT a.id,a.action,a.created_at,COALESCE(u.name,\'System\') AS actor FROM audit_log a LEFT JOIN users u ON u.id=a.user_id WHERE a.event_id=? ORDER BY a.id DESC LIMIT 50',[$e['id']]);
     } unset($e);
-    return ['user'=>$u,'csrf'=>$_SESSION['csrf'],'verificationRequired'=>isset($_SESSION['pending_uid']),'passwordChangeRequired'=>(bool)($u && isset($_SESSION['recovery_password_hash'])),'needsSetup'=>setupAllowed() && (int)query($db,'SELECT COUNT(*) FROM users')->fetchColumn()===0,'events'=>$events,'users'=>$u && $u['role']==='organizer'?rows($db,'SELECT id,name,email,username,role,disabled_at,email_verified_at FROM users ORDER BY id'):[]];
+    return ['user'=>$u,'csrf'=>$_SESSION['csrf'],'verificationRequired'=>isset($_SESSION['pending_uid']),'loginVerificationRequired'=>isset($_SESSION['pending_login']),'emailChangePending'=>(bool)($u && isset($_SESSION['pending_email'])),'passwordChangeRequired'=>(bool)($u && isset($_SESSION['recovery_password_hash'])),'needsSetup'=>setupAllowed() && (int)query($db,'SELECT COUNT(*) FROM users')->fetchColumn()===0,'events'=>$events,'users'=>$u && $u['role']==='organizer'?rows($db,'SELECT id,name,email,username,role,disabled_at,email_verified_at FROM users ORDER BY id'):[]];
 }
 try {
     $databaseStage='configuration';
@@ -78,10 +78,35 @@ try {
         rateLimit($db,'recovery-email',$email,1,60,true);
     }
     if ($u && $action==='change_password') rateLimit($db,'password-change',(string)$u['id'],10,900);
+    if (in_array($action,['verify_login','resend_login','request_email_change','confirm_email_change'],true)) {
+        rateLimit($db,'account-code-ip',$ip,60,600);
+        rateLimit($db,$action,(string)($u['id']??$_SESSION['pending_login']['uid']??$ip),$action==='resend_login'?1:10,$action==='resend_login'?60:600,$action==='resend_login');
+    }
     // Serialize mutations, including first-organizer creation and roster membership checks.
     demand((int)query($db,"SELECT GET_LOCK('tfv1_mutation',10)")->fetchColumn()===1,'The system is busy. Please try again.',503);
     $db->beginTransaction();
-    if ($action==='forgot_password') {
+    if ($action==='verify_login' || $action==='resend_login') {
+        $pending=$_SESSION['pending_login']??null;
+        demand((bool)$pending,'Enter your email and password before requesting a sign-in code.',401);
+        $account=one($db,'SELECT * FROM users WHERE id=? AND disabled_at IS NULL AND email_verified_at IS NOT NULL',[$pending['uid']]);
+        demand($account && (int)$account['auth_version']===$pending['version'] && $account['email']===$pending['email'] && $account['role']===$pending['role'],'Account changed. Sign in again.',401);
+        if ($action==='resend_login') {
+            $newCode=sendAccountCode($account['email'],'sign-in');
+            $_SESSION['pending_login']=array_merge($pending,$newCode,['attempts'=>$pending['attempts']]);
+        } else {
+            verifyAccountCode($_SESSION['pending_login'],$d);
+            $recovery=$pending['recovery_hash']??null;
+            if ($recovery) {
+                $reset=one($db,'SELECT password_hash FROM password_resets WHERE user_id=? AND expires_at>NOW()',[$account['id']]);
+                demand($reset && hash_equals($reset['password_hash'],$recovery),'Temporary password expired or already used. Sign in again.',401);
+                query($db,'DELETE FROM password_resets WHERE user_id=?',[$account['id']]);
+                query($db,'UPDATE users SET auth_version=auth_version+1 WHERE id=?',[$account['id']]);
+                $account['auth_version']++;
+            }
+            signIn((int)$account['id'],$account['role']==='organizer',(int)$account['auth_version']);
+            if ($recovery) $_SESSION['recovery_password_hash']=$recovery;
+        }
+    } elseif ($action==='forgot_password') {
         $account=one($db,"SELECT id,email FROM users WHERE email=? AND role<>'organizer' AND disabled_at IS NULL AND email_verified_at IS NOT NULL",[$email]);
         if ($account) sendTemporaryPassword($db,(int)$account['id'],$account['email']);
     } elseif (in_array($action,['setup','signup','login','admin_login','logout','verify_email','resend_verification'],true)) {
@@ -107,15 +132,12 @@ try {
                 $valid=$recovery && password_verify(passwordValue($d),$recovery['password_hash']);
             }
             demand($account && $valid && !$account['disabled_at'] && (($action==='admin_login')===($account['role']==='organizer')),'Account or password is incorrect. Use the appropriate sign-in form.',401);
-            if (!$account['email_verified_at']) { $_SESSION=[]; session_regenerate_id(true); $_SESSION['pending_uid']=(int)$account['id']; $_SESSION['pending_admin']=$action==='admin_login'; $_SESSION['csrf']=bin2hex(random_bytes(32)); }
+            if (!$account['email_verified_at']) { sendVerification($db,(int)$account['id'],$account['email']); $_SESSION=[]; session_regenerate_id(true); $_SESSION['pending_uid']=(int)$account['id']; $_SESSION['pending_admin']=$action==='admin_login'; $_SESSION['csrf']=bin2hex(random_bytes(32)); }
             else {
-                if ($recovery) {
-                    query($db,'DELETE FROM password_resets WHERE user_id=?',[$account['id']]);
-                    query($db,'UPDATE users SET auth_version=auth_version+1 WHERE id=?',[$account['id']]);
-                    $account['auth_version']++;
-                } elseif (password_needs_rehash($account['password_hash'],PASSWORD_DEFAULT)) query($db,'UPDATE users SET password_hash=? WHERE id=?',[password_hash((string)$d['password'],PASSWORD_DEFAULT),$account['id']]);
-                signIn((int)$account['id'],$action==='admin_login',(int)$account['auth_version']);
-                if ($recovery) $_SESSION['recovery_password_hash']=$recovery['password_hash'];
+                $challenge=sendAccountCode($account['email'],'sign-in');
+                if (!$recovery && password_needs_rehash($account['password_hash'],PASSWORD_DEFAULT)) query($db,'UPDATE users SET password_hash=? WHERE id=?',[password_hash((string)$d['password'],PASSWORD_DEFAULT),$account['id']]);
+                $_SESSION=[]; session_regenerate_id(true); $_SESSION['csrf']=bin2hex(random_bytes(32));
+                $_SESSION['pending_login']=array_merge($challenge,['uid'=>(int)$account['id'],'version'=>(int)$account['auth_version'],'email'=>$account['email'],'role'=>$account['role'],'recovery_hash'=>$recovery['password_hash']??null]);
             }
         } else {
             $empty=(int)query($db,'SELECT COUNT(*) FROM users')->fetchColumn()===0;
@@ -130,7 +152,27 @@ try {
         }
     } else {
         demand((bool)$u,'Sign in to continue.',401);
-        if ($action==='change_password') {
+        if ($action==='request_email_change') {
+            admin($u); reauthenticate($db,$u,$d);
+            $email=strtolower(field($d,'email',190));
+            demand((bool)filter_var($email,FILTER_VALIDATE_EMAIL),'Enter a valid email address.');
+            demand($email!==$u['email'],'Enter a different email address.');
+            demand(!one($db,'SELECT id FROM users WHERE email=?',[$email]),'That email address is already in use.');
+            rateLimit($db,'email-change-send',(string)$u['id'],1,60,true);
+            $version=(int)query($db,'SELECT auth_version FROM users WHERE id=?',[$u['id']])->fetchColumn();
+            $_SESSION['pending_email']=array_merge(sendAccountCode($email,'email change'),['uid'=>(int)$u['id'],'email'=>$email,'version'=>$version]);
+        } elseif ($action==='confirm_email_change') {
+            admin($u); demand(isset($_SESSION['pending_email']),'Request an email change first.',401);
+            $pending=$_SESSION['pending_email'];
+            demand($pending['uid']===(int)$u['id'] && $pending['version']===(int)$_SESSION['auth_version'],'Account changed. Request an email change again.',401);
+            verifyAccountCode($_SESSION['pending_email'],$d);
+            demand(!one($db,'SELECT id FROM users WHERE email=?',[$pending['email']]),'That email address is already in use.');
+            query($db,'UPDATE users SET email=?,email_verified_at=NOW(),auth_version=auth_version+1 WHERE id=?',[$pending['email'],$u['id']]);
+            query($db,'DELETE FROM email_verifications WHERE user_id=?',[$u['id']]);
+            query($db,'DELETE FROM password_resets WHERE user_id=?',[$u['id']]);
+            signIn((int)$u['id'],true,$pending['version']+1);
+            audit($db,null,(int)$u['id'],'Changed organizer email after verifying the new inbox; previous sessions revoked.');
+        } elseif ($action==='change_password') {
             $account=one($db,'SELECT password_hash,auth_version FROM users WHERE id=?',[$u['id']]);
             $current=passwordValue($d,'current_password');
             demand(password_verify($current,$_SESSION['recovery_password_hash']??$account['password_hash']),'Current password is incorrect.',403);

@@ -30,8 +30,16 @@ assert.equal(await vm.runInContext("mutate('forgot_password',{email:'player@exam
 assert.match(content.innerHTML,/Check your inbox and spam folder/);
 assert.match(content.innerHTML,/data-action="login"/);
 context.fetch=async()=>new Response(JSON.stringify({state:{csrf:'test-csrf',events:[],user:{id:1},passwordChangeRequired:true}}));
-assert.equal(await vm.runInContext("mutate('login',{email:'player@example.test',password:'temporary'})",context),true);
+assert.equal(await vm.runInContext("mutate('verify_login',{code:'123456'})",context),true);
 assert.match(content.innerHTML,/data-submit="change_password"/);
 for(const name of ['current_password','new_password','confirm_password'])assert.match(content.innerHTML,new RegExp(`name="${name}"`));
+context.fetch=async()=>new Response(JSON.stringify({state:{csrf:'test-csrf',events:[],user:null,loginVerificationRequired:true}}));
+assert.equal(await vm.runInContext("mutate('admin_login',{username:'organizer',password:'password'})",context),true);
+assert.match(content.innerHTML,/data-submit="verify_login"/);
+assert.match(content.innerHTML,/autocomplete="one-time-code"/);
+assert.match(content.innerHTML,/data-action="resend-login"/);
+context.fetch=async()=>new Response(JSON.stringify({state:{csrf:'test-csrf',events:[],user:{id:1,role:'organizer'},emailChangePending:true}}));
+assert.equal(await vm.runInContext("mutate('request_email_change',{email:'new@example.test',admin_password:'password'})",context),true);
+assert.match(content.innerHTML,/data-submit="confirm_email_change"/);
 assert.match(readFileSync(new URL('../index.php',import.meta.url),'utf8'),/>Organizer sign in</);
 console.log('PASS: player recovery entry, separate organizer sign-in, signup, email confirmation, CSRF submission and temporary-login password-change handoff.');

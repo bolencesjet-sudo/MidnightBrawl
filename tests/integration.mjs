@@ -20,7 +20,14 @@ class Client{
   const raw=await res.text();let json;try{json=JSON.parse(raw)}catch{throw Error(`Invalid API JSON (${res.status}): ${raw.slice(0,2000)}`)}assert.equal(res.status,expected,json.error||`Unexpected status for ${data?.action||"state"}`);checks++;
   if(res.ok){this.state=json.state||json;this.csrf=this.state.csrf}return json;
  }
- async act(action,data={},expected=200){return this.request({action,...(['set_role','set_disabled','delete_event'].includes(action)?{admin_password:'TFv1-test-password-42'}:{}),...data},expected)}
+ async act(action,data={},expected=200){
+  const result=await this.request({action,...(['set_role','set_disabled','delete_event'].includes(action)?{admin_password:'TFv1-test-password-42'}:{}),...data},expected);
+  if(expected===200&&['login','admin_login'].includes(action)&&this.state.loginVerificationRequired){
+   check(this.state.user===null,'Password alone must never authenticate.');
+   return this.request({action:'verify_login',code:smtp.code(smtp.messages.at(-1).recipient)});
+  }
+  return result;
+ }
  async signup(name,setup=false){await this.request();const email=`${name.toLowerCase()}@example.test`;await this.act(setup?'setup':'signup',{name,email,password:'TFv1-test-password-42',fair_play:true});if(!setup){check(this.state.user===null&&this.state.verificationRequired,'Signup must not authenticate before email verification.');await this.act('verify_email',{code:smtp.code(email)})}return this}
  event(id){return this.state.events.find(e=>Number(e.id)===Number(id))}
 }
@@ -129,6 +136,43 @@ try{
  const invalid=await fetch(base,{method:'POST',headers:{Cookie:pendingUser.cookie,'Content-Type':'application/json','X-CSRF-Token':pendingUser.csrf},body:'{"action":'});await invalid.text();check(invalid.status===400,'Malformed JSON must return 400.');
  const tooLarge=await fetch(base,{method:'POST',headers:{Cookie:pendingUser.cookie,'Content-Type':'application/json','X-CSRF-Token':pendingUser.csrf},body:JSON.stringify({action:'login',padding:'x'.repeat(17000)})});const tooLargeBody=await tooLarge.text();check(tooLarge.status===413,`Oversized JSON must return 413 (received ${tooLarge.status}: ${tooLargeBody}).`);
  await pendingUser.act('login',{email:'verify@example.test',password:[]},422);
+ // Every password login requires an expiring, session-bound, single-use email code.
+ const gate=new Client();await gate.request();
+ await gate.request({action:'admin_login',username:'test-administrator',password:'Changed-test-passphrase-42'});
+ check(gate.state.user===null&&gate.state.loginVerificationRequired,'Organizer must remain anonymous until their email code is verified.');
+ const firstLoginCode=smtp.code('cli-admin@example.test');
+ const stolen=new Client();await stolen.request();await stolen.act('verify_login',{code:firstLoginCode},401);
+ await gate.act('verify_login',{code:firstLoginCode==='000000'?'111111':'000000'},422);
+ await gate.act('create_event',{},401);
+ await gate.act('resend_login');await gate.act('resend_login',{},429);
+ const newLoginCode=smtp.code('cli-admin@example.test');
+ if(firstLoginCode!==newLoginCode)await gate.act('verify_login',{code:firstLoginCode},422);
+ await gate.act('verify_login',{code:newLoginCode});
+ check(gate.state.user.role==='organizer','Correct email code must finish organizer login.');
+ await gate.act('verify_login',{code:newLoginCode},401);
+ await players[0].act('request_email_change',{email:'forbidden@example.test',admin_password:'TFv1-test-password-42'},403);
+ await gate.act('request_email_change',{email:'new-admin@example.test',admin_password:'wrong'},403);
+ await gate.act('request_email_change',{email:'player1@example.test',admin_password:'Changed-test-passphrase-42'},422);
+ await gate.act('request_email_change',{email:'new-admin@example.test',admin_password:'Changed-test-passphrase-42'});
+ check(gate.state.user.email==='cli-admin@example.test'&&gate.state.emailChangePending,'Email must stay unchanged before new inbox verification.');
+ const emailCode=smtp.code('new-admin@example.test');
+ await gate.act('confirm_email_change',{code:'000000'},422);
+ await gate.act('confirm_email_change',{code:emailCode});
+ check(gate.state.user.email==='new-admin@example.test'&&!gate.state.emailChangePending,'Email update must preserve organizer access.');
+ await cliAdmin.request();check(cliAdmin.state.user===null,'Email update must revoke other organizer sessions.');
+ await gate.act('confirm_email_change',{code:emailCode},401);
+ await gate.act('logout');await gate.request({action:'admin_login',username:'test-administrator',password:'Changed-test-passphrase-42'});
+ check(smtp.messages.at(-1).recipient==='new-admin@example.test','Future sign-in codes must go to the verified new inbox.');
+ await gate.act('verify_login',{code:smtp.code('new-admin@example.test')});
+ const exhausted=new Client();await exhausted.request();await exhausted.request({action:'login',email:'official@example.test',password:'TFv1-test-password-42'});
+ const exhaustedCode=smtp.code('official@example.test');
+ for(let i=0;i<5;i++)await exhausted.act('verify_login',{code:'000000'},422);
+ await exhausted.act('verify_login',{code:exhaustedCode},422);
+ const expiring=new Client();await expiring.request();await expiring.request({action:'login',email:'player3@example.test',password:'TFv1-test-password-42'});
+ const expiringCode=smtp.code('player3@example.test');
+ const expireChallenge=spawnSync('php',['-r',`require 'lib.php'; session_id('${expiring.cookie.split('=')[1]}'); startSecureSession(); $_SESSION['pending_login']['expires']=time()-1; session_write_close();`],{cwd:root,env,encoding:'utf8'});
+ check(expireChallenge.status===0,'Test challenge expiry must be saved to the isolated session store.');
+ await expiring.act('verify_login',{code:expiringCode},422);
  // Recovery emails do not overwrite the password; temporary credentials expire and are single-use.
  const recovered=await new Client().signup('Recovery');
  const recoveredId=recovered.state.user.id;
