@@ -34,7 +34,7 @@
     <main id="main" tabindex="-1"><div class="loading-state"><span class="spinner"></span><p>Getting your arena ready…</p></div></main>
     <footer class="footer"><span>TFv1 <span class="muted">/ Team Fight version.1</span></span><span>Play with purpose. Win with integrity.</span></footer>
   </div>
-  <dialog id="modal"><div id="modal-content"></div></dialog>
+  <dialog id="modal" closedby="none"><div id="modal-content"></div></dialog>
   <div id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>

@@ -40,7 +40,7 @@ const formationName=m=>({random:'Random Shuffle',captain:'Captain Mode',free:'Fr
 const initials=n=>String(n).split(/\s+/).slice(0,2).map(w=>w[0]).join('').toUpperCase();
 const badge=(t,big=false)=>`<span class="team-badge${big?' big':''}" style="--team:${/^#[a-fA-F0-9]{6}$/.test(t?.color)?t.color:'#a78bfa'}">${esc(initials(t?.name||'Team'))}</span>`;
 const pill=(text,color='',dot=false)=>`<span class="pill ${color}">${dot?'<i class="status-dot"></i>':''}${esc(text)}</span>`;
-const btn=(label,action,ic='',kind='',extra='')=>`<button class="btn ${kind}" data-action="${action}" ${extra}>${ic?icon(ic):''}${label}</button>`;
+const btn=(label,action,ic='',kind='',extra='')=>`<button type="button" class="btn ${kind}" data-action="${action}" ${extra}>${ic?icon(ic):''}${label}</button>`;
 const date=s=>new Date(s.replace(' ','T')).toLocaleString('en-PH',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
 function notice(content,warning=false){return `<div class="notice ${warning?'warning':''}">${icon(warning?'flag':'info')}<div>${content}</div></div>`}
 function empty(title,description,action=''){return `<div class="empty-state"><span>${icon('shield')}</span><h3>${title}</h3><p>${description}</p>${action}</div>`}
@@ -220,7 +220,8 @@ $('#theme-toggle').addEventListener('click',()=>{document.documentElement.datase
 $('#menu-toggle').addEventListener('click',()=>{$('#sidebar').classList.toggle('open');$('#menu-toggle').setAttribute('aria-expanded',String($('#sidebar').classList.contains('open')))});
 document.addEventListener('click',ev=>{if(!ev.target.closest('.sidebar')&&!ev.target.closest('#menu-toggle'))$('#sidebar').classList.remove('open')});
 window.addEventListener('hashchange',()=>{render();$('#sidebar').classList.remove('open');window.scrollTo({top:0})});
-$('#modal').addEventListener('click',ev=>{if(ev.target===$('#modal')){const r=$('#modal').getBoundingClientRect();if(ev.clientX<r.left||ev.clientX>r.right||ev.clientY<r.top||ev.clientY>r.bottom)$('#modal').close()}});
+// Keep unfinished forms open until an explicit Close/Cancel or a successful submission.
+$('#modal').addEventListener('cancel',ev=>ev.preventDefault());
 function clockTick(){$('#clock').textContent=new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date())+' · PHT'}
 clockTick();setInterval(clockTick,30000);hydrateIcons();updateThemeLabel();load();
 // Refresh shared event results without interrupting a form or player search.

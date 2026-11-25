@@ -32,8 +32,10 @@ try {
     validateEnvironment();
     $db=db();
     demand((int)query($db,"SELECT GET_LOCK('tfv1_schema_migration',30)")->fetchColumn()===1,'Migration is busy.');
-    $tables=['users','events','players','teams','team_members','join_requests','matches','audit_log','rate_limits','email_verifications','web_sessions'];
+    $tables=['users','events','players','teams','team_members','join_requests','matches','audit_log','rate_limits','email_verifications','password_resets','web_sessions'];
     $existing=query($db,'SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+    $missing=array_values(array_diff($tables,$existing));
+    echo 'Missing application tables before migration: '.($missing?implode(', ',$missing):'none')."\n";
     $prefix='tfbackup_'.gmdate('Ymd_His').'_'.bin2hex(random_bytes(2)).'_';
     $snapshots=[];
     foreach ($tables as $table) if (in_array($table,$existing,true)) {
@@ -49,7 +51,7 @@ try {
     foreach (explode(';',file_get_contents(dirname(__DIR__).'/database/schema.sql')) as $statement) if (trim($statement)) $db->exec($statement);
     require dirname(__DIR__).'/database/migrate.php'; migrateSecurity($db);
     foreach ($snapshots as $table=>$backup) {
-        if(in_array($table,['rate_limits','web_sessions'],true))continue; // Live requests refresh these operational records.
+        if(in_array($table,['rate_limits','web_sessions','password_resets'],true))continue; // Live requests refresh these operational records.
         // Check every pre-existing record; added user security columns are excluded.
         $columns=array_column(rows($db,"SHOW COLUMNS FROM `$backup`"),'Field');
         $list=implode(',',array_map(fn($column)=>'`'.str_replace('`','``',$column).'`',$columns));

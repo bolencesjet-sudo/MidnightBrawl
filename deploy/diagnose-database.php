@@ -14,6 +14,7 @@ try {
         'users'=>'id,name,email,password_hash,role,username,email_verified_at,disabled_at,auth_version',
         'rate_limits'=>'bucket_key,window_start,hits,expires_at',
         'email_verifications'=>'user_id,code_hash,expires_at',
+        'password_resets'=>'user_id,password_hash,expires_at',
         'web_sessions'=>'id_hash,payload,expires_at',
         'events'=>'id,name,roles,locked,demo',
         'players'=>'id,event_id,user_id,display_name,game_id',
