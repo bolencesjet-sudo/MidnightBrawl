@@ -100,9 +100,9 @@ function signIn(int $uid, bool $admin = false, int $version = 1): void {
     $_SESSION=[]; session_regenerate_id(true);
     $_SESSION['uid']=$uid; $_SESSION['admin_login']=$admin; $_SESSION['auth_version']=$version; $_SESSION['signed_in']=time(); $_SESSION['last_seen']=time(); $_SESSION['csrf']=bin2hex(random_bytes(32));
 }
-function reauthenticate(PDO $db, array $u, array $data): void {
+function reauthenticate(PDO $db, array $u, array $data, string $message = 'Confirm your admin password to continue.'): void {
     $hash=query($db,'SELECT password_hash FROM users WHERE id=?',[$u['id']])->fetchColumn();
-    demand(password_verify(passwordValue($data,'admin_password'),$hash), 'Confirm your admin password to continue.',403);
+    demand(password_verify(passwordValue($data,'admin_password'),$hash),$message,403);
 }
 function verifyAccountCode(array &$challenge, array $data): void {
     demand(($challenge['expires']??0)>time() && ($challenge['attempts']??5)<5,'Code expired or too many attempts. Start again to request a new code.');

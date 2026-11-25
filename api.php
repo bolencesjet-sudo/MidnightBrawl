@@ -153,7 +153,7 @@ try {
     } else {
         demand((bool)$u,'Sign in to continue.',401);
         if ($action==='request_email_change') {
-            admin($u); reauthenticate($db,$u,$d);
+            reauthenticate($db,$u,$d,'Confirm your account password to continue.');
             $email=strtolower(field($d,'email',190));
             demand((bool)filter_var($email,FILTER_VALIDATE_EMAIL),'Enter a valid email address.');
             demand($email!==$u['email'],'Enter a different email address.');
@@ -162,7 +162,7 @@ try {
             $version=(int)query($db,'SELECT auth_version FROM users WHERE id=?',[$u['id']])->fetchColumn();
             $_SESSION['pending_email']=array_merge(sendAccountCode($email,'email change'),['uid'=>(int)$u['id'],'email'=>$email,'version'=>$version]);
         } elseif ($action==='confirm_email_change') {
-            admin($u); demand(isset($_SESSION['pending_email']),'Request an email change first.',401);
+            demand(isset($_SESSION['pending_email']),'Request an email change first.',401);
             $pending=$_SESSION['pending_email'];
             demand($pending['uid']===(int)$u['id'] && $pending['version']===(int)$_SESSION['auth_version'],'Account changed. Request an email change again.',401);
             verifyAccountCode($_SESSION['pending_email'],$d);
@@ -170,8 +170,8 @@ try {
             query($db,'UPDATE users SET email=?,email_verified_at=NOW(),auth_version=auth_version+1 WHERE id=?',[$pending['email'],$u['id']]);
             query($db,'DELETE FROM email_verifications WHERE user_id=?',[$u['id']]);
             query($db,'DELETE FROM password_resets WHERE user_id=?',[$u['id']]);
-            signIn((int)$u['id'],true,$pending['version']+1);
-            audit($db,null,(int)$u['id'],'Changed organizer email after verifying the new inbox; previous sessions revoked.');
+            signIn((int)$u['id'],$u['role']==='organizer',$pending['version']+1);
+            audit($db,null,(int)$u['id'],'Changed account email after verifying the new inbox; previous sessions revoked.');
         } elseif ($action==='change_password') {
             $account=one($db,'SELECT password_hash,auth_version FROM users WHERE id=?',[$u['id']]);
             $current=passwordValue($d,'current_password');

@@ -150,7 +150,7 @@ try{
  await gate.act('verify_login',{code:newLoginCode});
  check(gate.state.user.role==='organizer','Correct email code must finish organizer login.');
  await gate.act('verify_login',{code:newLoginCode},401);
- await players[0].act('request_email_change',{email:'forbidden@example.test',admin_password:'TFv1-test-password-42'},403);
+ await stolen.act('request_email_change',{email:'forbidden@example.test',admin_password:'TFv1-test-password-42'},401);
  await gate.act('request_email_change',{email:'new-admin@example.test',admin_password:'wrong'},403);
  await gate.act('request_email_change',{email:'player1@example.test',admin_password:'Changed-test-passphrase-42'},422);
  await gate.act('request_email_change',{email:'new-admin@example.test',admin_password:'Changed-test-passphrase-42'});
@@ -173,6 +173,24 @@ try{
  const expireChallenge=spawnSync('php',['-r',`require 'lib.php'; session_id('${expiring.cookie.split('=')[1]}'); startSecureSession(); $_SESSION['pending_login']['expires']=time()-1; session_write_close();`],{cwd:root,env,encoding:'utf8'});
  check(expireChallenge.status===0,'Test challenge expiry must be saved to the isolated session store.');
  await expiring.act('verify_login',{code:expiringCode},422);
+ // All roles may change only their own email after password and new-inbox verification.
+ for(const [account,newEmail] of [[players[0],'updated-player@example.test'],[ref,'updated-referee@example.test']]){
+  await account.request();const before=account.state.user,eventsBefore=JSON.stringify(account.state.events);
+  const previousSession=new Client();await previousSession.request();await previousSession.act('login',{email:before.email,password:'TFv1-test-password-42'});
+  await account.act('request_email_change',{email:newEmail,admin_password:'wrong'},403);
+  await account.act('request_email_change',{email:'organizer@example.test',admin_password:'TFv1-test-password-42'},422);
+  await account.act('request_email_change',{email:newEmail,admin_password:'TFv1-test-password-42',user_id:admin.state.user.id});
+  check(account.state.user.email===before.email,'Unverified email change must preserve the current inbox.');
+  await account.act('confirm_email_change',{code:'000000'},422);
+  await account.act('confirm_email_change',{code:smtp.code(newEmail),user_id:admin.state.user.id});
+  check(account.state.user.email===newEmail&&account.state.user.id===before.id&&account.state.user.role===before.role,'Email change must preserve the player or referee identity and role.');
+  check(JSON.stringify(account.state.events)===eventsBefore,'Email change must preserve all tournament records.');
+  await previousSession.request();check(previousSession.state.user===null,'Player and referee email changes must revoke other sessions.');
+  await previousSession.act('login',{email:before.email,password:'TFv1-test-password-42'},401);
+  await previousSession.act('login',{email:newEmail,password:'TFv1-test-password-42'});
+  check(previousSession.state.user.role===before.role,'Updated inbox must support normal email-code sign-in without granting organizer access.');
+ }
+ await admin.request();check(admin.state.user.email==='organizer@example.test','Other accounts must not be changed by a submitted user_id.');
  // Recovery emails do not overwrite the password; temporary credentials expire and are single-use.
  const recovered=await new Client().signup('Recovery');
  const recoveredId=recovered.state.user.id;

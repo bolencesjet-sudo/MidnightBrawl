@@ -41,5 +41,16 @@ assert.match(content.innerHTML,/data-action="resend-login"/);
 context.fetch=async()=>new Response(JSON.stringify({state:{csrf:'test-csrf',events:[],user:{id:1,role:'organizer'},emailChangePending:true}}));
 assert.equal(await vm.runInContext("mutate('request_email_change',{email:'new@example.test',admin_password:'password'})",context),true);
 assert.match(content.innerHTML,/data-submit="confirm_email_change"/);
+let click;
+context.document.addEventListener=(name,handler)=>{if(name==='click')click=handler};
+vm.runInContext(source.slice(source.indexOf("document.addEventListener('click'"),source.indexOf("document.addEventListener('submit'")),context);
+for(const role of ['player','referee','organizer']){
+ vm.runInContext(`state.user={id:1,name:'Account',email:'account@example.test',role:'${role}'}`,context);
+ await click({target:{closest:selector=>selector==='[data-action]'?{dataset:{action:'account'}}:null},preventDefault(){}});
+ assert.match(content.innerHTML,/data-action="change-email"/,`${role} account menu must offer Change email`);
+ await click({target:{closest:selector=>selector==='[data-action]'?{dataset:{action:'change-email'}}:null},preventDefault(){}});
+ assert.match(content.innerHTML,/data-submit="request_email_change"/,`${role} must be able to open the email change form`);
+ assert.match(content.innerHTML,/Confirm your password/);
+}
 assert.match(readFileSync(new URL('../index.php',import.meta.url),'utf8'),/>Organizer sign in</);
 console.log('PASS: player recovery entry, separate organizer sign-in, signup, email confirmation, CSRF submission and temporary-login password-change handoff.');
